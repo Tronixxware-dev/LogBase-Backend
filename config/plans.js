@@ -33,6 +33,18 @@ const PLANS = {
   },
 };
 
+// FOR TESTING PAYMENTS ONLY: set PAYSTACK_TEST_PRICES=on in the server's environment and Starter costs
+// N100 a month (N1,000 a year) and Business N200 a month (N2,000 a year). Remove the variable (or set it to
+// anything else) and the real prices above are back. Nothing else needs to change.
+const TEST_PRICES = process.env.PAYSTACK_TEST_PRICES === 'on';
+if (TEST_PRICES) {
+  PLANS.starter.monthly = 10000; // N100
+  PLANS.starter.yearly = 100000; // N1,000
+  PLANS.business.monthly = 20000; // N200
+  PLANS.business.yearly = 200000; // N2,000
+  console.warn('WARNING: PAYSTACK_TEST_PRICES is on. Customers are being charged test prices (N100 / N200).');
+}
+
 const PLAN_ORDER = ['free', 'starter', 'business'];
 const PAID_PLANS = ['starter', 'business'];
 const INTERVALS = ['monthly', 'yearly'];

@@ -17,17 +17,17 @@ const PLANS = {
     key: 'starter',
     name: 'Starter',
     tagline: 'For a shop with a few helpers',
-    monthly: 500000, // ₦5,000
-    yearly: 5000000, // ₦50,000 (two months free)
-    limits: { staff: 3, stocks: 500 },
+    monthly: 100000, // ₦1,000
+    yearly: 1000000, // ₦10,000 (two months free)
+    limits: { staff: 3, stocks: 300 },
     features: { activityLog: false },
   },
   business: {
     key: 'business',
     name: 'Business',
     tagline: 'For a growing business',
-    monthly: 1500000, // ₦15,000
-    yearly: 15000000, // ₦150,000 (two months free)
+    monthly: 300000, // ₦3,000
+    yearly: 3000000, // ₦30,000 (two months free)
     limits: { staff: null, stocks: null },
     features: { activityLog: true },
   },

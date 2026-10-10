@@ -34,10 +34,20 @@ async function sendEmail({ to, subject, html, text }) {
   return data;
 }
 
+// The logo is the app icon served by the website (public/icons/icon-192.png), so it must be a PNG on a public address.
+// Set MAIL_LOGO_URL to use a different picture.
+function logoUrl() {
+  if (process.env.MAIL_LOGO_URL) return process.env.MAIL_LOGO_URL;
+  return `${(process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/+$/, '')}/icons/icon-192.png`;
+}
+
 function layout(title, bodyHtml) {
   return `<!doctype html><html><body style="margin:0;padding:24px;background:#f9fafb;font-family:Arial,Helvetica,sans-serif;color:#111827">
 <div style="max-width:480px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;padding:28px">
-<p style="margin:0 0 16px;font-size:20px;font-weight:700;color:#0d9488">LogBase</p>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 20px"><tr>
+<td style="padding:0 10px 0 0;vertical-align:middle"><img src="${escapeHtml(logoUrl())}" width="36" height="36" alt="LogBase logo" style="display:block;width:36px;height:36px;border-radius:8px;border:0"></td>
+<td style="vertical-align:middle;font-size:20px;font-weight:700;color:#0d9488">LogBase</td>
+</tr></table>
 <h1 style="margin:0 0 12px;font-size:18px">${escapeHtml(title)}</h1>
 ${bodyHtml}
 </div></body></html>`;
@@ -56,6 +66,22 @@ function resetPasswordEmail({ name, link, minutes }) {
 <p style="margin:16px 0 0;font-size:12px;color:#6b7280;line-height:1.5">If you did not ask for this, ignore this email: your password stays the same.</p>`
   );
   return { subject: 'Reset your LogBase password', html, text };
+}
+
+// Sent once, right after a business signs up
+function welcomeEmail({ name, businessName, trialDays, link }) {
+  const hello = name ? `Hi ${name},` : 'Hi,';
+  const biz = businessName ? ` for ${businessName}` : '';
+  const text = `${hello}\n\nWelcome to LogBase! Your account${biz} is ready, and your ${trialDays}-day free trial has started with every feature switched on.\n\nA good way to start: add your products, record a purchase and a sale, and see your stock update.\n\nOpen LogBase: ${link}\n\nNeed help? Write to tronixxware01@gmail.com.\n`;
+  const html = layout(
+    'Welcome to LogBase',
+    `<p style="margin:0 0 12px;font-size:14px;line-height:1.5">${escapeHtml(hello)}</p>
+<p style="margin:0 0 12px;font-size:14px;line-height:1.5">Your account${escapeHtml(biz)} is ready, and your <strong>${escapeHtml(String(trialDays))}-day free trial</strong> has started with every feature switched on.</p>
+<p style="margin:0 0 20px;font-size:14px;line-height:1.5">A good way to start: add your products, record a purchase and a sale, and see your stock update.</p>
+<p style="margin:0 0 20px"><a href="${escapeHtml(link)}" style="display:inline-block;background:#0d9488;color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;padding:11px 20px;border-radius:8px">Open LogBase</a></p>
+<p style="margin:0;font-size:12px;color:#6b7280;line-height:1.5">Need help? Write to tronixxware01@gmail.com.</p>`
+  );
+  return { subject: 'Welcome to LogBase', html, text };
 }
 
 // Sent after the password was changed through the link, so the owner of the account knows
@@ -110,4 +136,4 @@ function renewalFailedEmail({ name, planName, amount, reason, willRetry, link })
   return { subject: willRetry ? 'Your LogBase plan could not be renewed' : 'Automatic renewal is off: please renew your plan', html, text };
 }
 
-module.exports = { isConfigured, sendEmail, resetPasswordEmail, passwordChangedEmail, renewalSucceededEmail, renewalFailedEmail, escapeHtml };
+module.exports = { isConfigured, sendEmail, welcomeEmail, resetPasswordEmail, passwordChangedEmail, renewalSucceededEmail, renewalFailedEmail, escapeHtml };

@@ -21,6 +21,7 @@ const billingRoutes = require('./routes/billingRoutes');
 const expenseRoutes = require('./routes/expenseRoutes');
 const importRoutes = require('./routes/importRoutes');
 const serialRoutes = require('./routes/serialRoutes');
+const adminRoutes = require('./routes/adminRoutes');
 const { startRenewalScheduler } = require('./utils/renewals');
 
 connectDB();
@@ -62,6 +63,7 @@ app.use('/api/billing', billingRoutes);
 app.use('/api/expenses', expenseRoutes);
 app.use('/api/import', importRoutes);
 app.use('/api/serials', serialRoutes);
+app.use('/api/admin', adminRoutes); // the LogBase super-admin panel (SUPER_ADMIN_EMAILS only)
 
 app.use(notFound);
 app.use(errorHandler);

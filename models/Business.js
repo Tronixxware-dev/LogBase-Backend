@@ -10,6 +10,9 @@ const businessSchema = new mongoose.Schema(
     currency: { type: String, default: 'NGN' },
     plan: { type: String, enum: ['free', 'pro'], default: 'free' },
     isActive: { type: Boolean, default: true },
+    // Set by the LogBase super admin (see controllers/adminController.js). A suspended business cannot log in or use the API.
+    suspendedAt: { type: Date },
+    suspendedReason: { type: String, trim: true, maxlength: 300 },
   },
   { timestamps: true }
 );

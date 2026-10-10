@@ -9,6 +9,7 @@ const { httpError } = require('../utils/httpError');
 const { logActivity } = require('../utils/audit');
 const { assertCanAddStaff } = require('../utils/billing');
 const { checkPassword } = require('../utils/passwordPolicy');
+const { isSuperAdminEmail } = require('../utils/superAdmin');
 const { loginGuard, changePasswordGuard, clientIp, lockedMessage: tooManyAttempts } = require('../utils/rateLimit');
 const {
   permissionsOf,
@@ -36,6 +37,8 @@ function sanitizeUser(user, businessName) {
     permissions: permissionsOf(user),
     business: user.business,
     isActive: user.isActive,
+    // true for the LogBase owner(s) listed in SUPER_ADMIN_EMAILS: shows the Admin panel link. The server re-checks it on every admin call.
+    isSuperAdmin: isSuperAdminEmail(user.email),
     createdAt: user.createdAt,
   };
   if (businessName) out.businessName = businessName;
@@ -243,8 +246,18 @@ async function login(req, res, next) {
       return res.status(403).json({ message: 'This account has been switched off. Ask the administrator of the business.' });
     }
 
+    // a suspended business cannot log in (the LogBase owner can always get in)
+    const business = await Business.findById(user.business).select('name isActive suspendedReason');
+    if (business && business.isActive === false && !isSuperAdminEmail(user.email)) {
+      return res.status(403).json({
+        message: business.suspendedReason
+          ? `This business has been suspended: ${business.suspendedReason}`
+          : 'This business has been suspended. Contact LogBase support.',
+      });
+    }
+
     const token = signToken(user);
-    res.json({ token, user: sanitizeUser(user, await businessNameOf(user.business)) });
+    res.json({ token, user: sanitizeUser(user, business ? business.name : undefined) });
   } catch (err) {
     next(err);
   }

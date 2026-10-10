@@ -96,6 +96,24 @@ function passwordChangedEmail({ name }) {
   return { subject: 'Your LogBase password was changed', html, text };
 }
 
+// A message written by the LogBase team in the admin panel (an announcement, a notice, a thank-you...).
+// The text is plain: blank lines become paragraphs, and nothing the admin types can inject HTML.
+function announcementEmail({ name, subject, message }) {
+  const hello = name ? `Hi ${name},` : 'Hi,';
+  const paragraphs = String(message || '')
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const text = `${hello}\n\n${paragraphs.join('\n\n')}\n\n- The LogBase team\n`;
+  const html = layout(
+    subject,
+    `<p style="margin:0 0 12px;font-size:14px;line-height:1.5">${escapeHtml(hello)}</p>
+${paragraphs.map((p) => `<p style="margin:0 0 12px;font-size:14px;line-height:1.6">${escapeHtml(p).replace(/\n/g, '<br>')}</p>`).join('\n')}
+<p style="margin:16px 0 0;font-size:12px;color:#6b7280;line-height:1.5">The LogBase team</p>`
+  );
+  return { subject, html, text };
+}
+
 function money(naira) {
   return `₦${Number(naira).toLocaleString('en-NG', { maximumFractionDigits: 2 })}`;
 }
@@ -136,4 +154,4 @@ function renewalFailedEmail({ name, planName, amount, reason, willRetry, link })
   return { subject: willRetry ? 'Your LogBase plan could not be renewed' : 'Automatic renewal is off: please renew your plan', html, text };
 }
 
-module.exports = { isConfigured, sendEmail, welcomeEmail, resetPasswordEmail, passwordChangedEmail, renewalSucceededEmail, renewalFailedEmail, escapeHtml };
+module.exports = { isConfigured, sendEmail, welcomeEmail, resetPasswordEmail, passwordChangedEmail, announcementEmail, renewalSucceededEmail, renewalFailedEmail, escapeHtml };

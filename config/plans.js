@@ -17,8 +17,8 @@ const PLANS = {
     key: 'starter',
     name: 'Starter',
     tagline: 'For a shop with a few helpers',
-    monthly: 100000, // ₦1,000
-    yearly: 1000000, // ₦10,000 (two months free)
+    monthly: 200000, // ₦2,000
+    yearly: 2000000, // ₦20,000 (two months free)
     limits: { staff: 3, stocks: 300 },
     features: { activityLog: false },
   },
@@ -26,8 +26,8 @@ const PLANS = {
     key: 'business',
     name: 'Business',
     tagline: 'For a growing business',
-    monthly: 300000, // ₦3,000
-    yearly: 3000000, // ₦30,000 (two months free)
+    monthly: 500000, // ₦5,000
+    yearly: 5000000, // ₦50,000 (two months free)
     limits: { staff: null, stocks: null },
     features: { activityLog: true },
   },

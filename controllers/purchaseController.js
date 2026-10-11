@@ -52,8 +52,7 @@ function clean(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-// A purchase sent with photos arrives as multipart form data with the purchase itself in a JSON `payload` field.
-// A purchase sent without photos is plain JSON.
+
 function readBody(req) {
   if (typeof req.body?.payload !== 'string') return req.body || {};
   try {

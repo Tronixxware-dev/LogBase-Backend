@@ -309,6 +309,8 @@ async function deleteImage(req, res, next) {
     const product = await findOwnProduct(req);
 
     const publicId = decodeURIComponent(req.params.publicId);
+    // only a photo that really belongs to this product may be removed (and deleted from Cloudinary)
+    if (!product.images.some((img) => img.publicId === publicId)) throw httpError(404, 'Photo not found');
     product.images = product.images.filter((img) => img.publicId !== publicId);
     // if the cover photo was deleted, the next photo becomes the cover
     if (product.images.length > 0 && !product.images.some((img) => img.isCover)) {

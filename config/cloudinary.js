@@ -20,6 +20,17 @@ cloudinary.config({
   api_secret: apiSecret,
 });
 
+// Only pictures a browser can show: JPG, PNG or WebP (an SVG can carry scripts, so it is refused)
+function imageOnly(req, file, cb) {
+  if (/^image\/(jpeg|png|webp)$/.test(file.mimetype)) return cb(null, true);
+  const err = new Error('Choose a JPG, PNG or WebP picture');
+  err.statusCode = 400;
+  cb(err);
+}
+
+// Photos of products, sales and purchases: at most 10 MB each and 8 per request, pictures only
+const photoLimits = { fileSize: 10 * 1024 * 1024, files: 8 };
+
 const storage = new CloudinaryStorage({
   cloudinary,
   params: {
@@ -29,7 +40,7 @@ const storage = new CloudinaryStorage({
   },
 });
 
-const upload = multer({ storage });
+const upload = multer({ storage, limits: photoLimits, fileFilter: imageOnly });
 
 // Photos taken while recording a sale (proof of what was sold, condition, etc.)
 const saleStorage = new CloudinaryStorage({
@@ -41,7 +52,7 @@ const saleStorage = new CloudinaryStorage({
   },
 });
 
-const saleUpload = multer({ storage: saleStorage });
+const saleUpload = multer({ storage: saleStorage, limits: photoLimits, fileFilter: imageOnly });
 
 // Photos taken while recording a purchase (the delivery, the goods received, the invoice, etc.)
 const purchaseStorage = new CloudinaryStorage({
@@ -53,15 +64,7 @@ const purchaseStorage = new CloudinaryStorage({
   },
 });
 
-const purchaseUpload = multer({ storage: purchaseStorage });
-
-// Only pictures a browser can show: JPG, PNG or WebP (an SVG can carry scripts, so it is refused)
-function imageOnly(req, file, cb) {
-  if (/^image\/(jpeg|png|webp)$/.test(file.mimetype)) return cb(null, true);
-  const err = new Error('Choose a JPG, PNG or WebP picture');
-  err.statusCode = 400;
-  cb(err);
-}
+const purchaseUpload = multer({ storage: purchaseStorage, limits: photoLimits, fileFilter: imageOnly });
 
 // A person's own profile photo: one picture, cropped to a square around the face, at most 5 MB
 const avatarStorage = new CloudinaryStorage({

@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
+const mongoose = require('mongoose');
 const connectDB = require('./config/db');
 const { notFound, errorHandler } = require('./middleware/errorHandler');
 const { trustProxyValue, securityHeaders, noStore, corsOptions } = require('./utils/security');
@@ -22,7 +23,7 @@ const expenseRoutes = require('./routes/expenseRoutes');
 const importRoutes = require('./routes/importRoutes');
 const serialRoutes = require('./routes/serialRoutes');
 const adminRoutes = require('./routes/adminRoutes');
-const { startRenewalScheduler } = require('./utils/renewals');
+const { startRenewalScheduler, stopRenewalScheduler } = require('./utils/renewals');
 
 connectDB();
 
@@ -44,9 +45,13 @@ app.use(
     },
   })
 );
-app.use(morgan('dev'));
+app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
-app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+// Reports whether the database is connected, so a monitor can tell "server up" from "server working".
+app.get('/api/health', (req, res) => {
+  const dbReady = mongoose.connection.readyState === 1;
+  res.status(dbReady ? 200 : 503).json({ status: dbReady ? 'ok' : 'database-unavailable' });
+});
 
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
@@ -69,7 +74,23 @@ app.use(notFound);
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   startRenewalScheduler(); // charges saved cards for plans set to renew automatically
 });
+
+// A redeploy sends SIGTERM: stop taking new requests, let running ones (a sale being saved) finish, then exit.
+function shutdown(signal) {
+  console.log(`${signal} received, shutting down`);
+  stopRenewalScheduler();
+  server.close(async () => {
+    try {
+      await mongoose.connection.close();
+    } finally {
+      process.exit(0);
+    }
+  });
+  setTimeout(() => process.exit(1), 10000).unref();
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

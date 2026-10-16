@@ -1,6 +1,7 @@
 const express = require('express');
 const { requireAuth, requireSuperAdmin } = require('../middleware/auth');
 const admin = require('../controllers/adminController');
+const adminSalesStock = require('../controllers/adminSalesStockController');
 
 const router = express.Router();
 
@@ -8,6 +9,7 @@ const router = express.Router();
 router.use(requireAuth, requireSuperAdmin);
 
 router.get('/overview', admin.overview);
+router.get('/sales-stock', adminSalesStock.salesStock);
 
 router.get('/businesses', admin.listBusinesses);
 router.get('/businesses/:id', admin.getBusiness);

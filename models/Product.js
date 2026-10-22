@@ -33,6 +33,8 @@ const variantSchema = new mongoose.Schema({
 const productSchema = new mongoose.Schema(
   {
     business: { type: mongoose.Schema.Types.ObjectId, ref: 'Business', required: true, index: true },
+    // the store this belongs to (empty = the main store)
+    shop: { type: mongoose.Schema.Types.ObjectId },
     name: { type: String, required: true, trim: true },
     sku: { type: String, trim: true },
     barcode: { type: String, trim: true },

@@ -8,6 +8,7 @@ const { round2 } = require('../utils/money');
 const { canSeeCosts } = require('../utils/permissions');
 const { supplierForUser, suppliersForUser, purchasesForUser } = require('../utils/staffView');
 const { logActivity } = require('../utils/audit');
+const { applyWorkingShop, shopForNewRecord } = require('../utils/shopStock');
 
 function money(n) {
   return `₦${Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
@@ -39,18 +40,21 @@ function pickSupplierFields(body) {
   return data;
 }
 
-// One phone number belongs to one supplier in a business.
-async function assertPhoneIsFree(businessId, phone, ignoreId) {
+// One phone number belongs to one supplier in a store (each store keeps its own suppliers).
+async function assertPhoneIsFree(businessId, phone, ignoreId, shopId) {
   if (!phone) return;
   const key = phoneKey(phone);
-  const others = await Supplier.find({ business: businessId, phone: { $exists: true, $ne: '' } }).select('name phone');
+  const others = await Supplier.find({ business: businessId, shop: shopId || null, phone: { $exists: true, $ne: '' } }).select('name phone');
   const clash = others.find((s) => String(s._id) !== String(ignoreId) && phoneKey(s.phone) === key);
   if (clash) throw httpError(409, `${clash.name} is already saved with this phone number.`);
 }
 
 async function listSuppliers(req, res, next) {
   try {
-    const suppliers = await Supplier.find({ business: req.businessId }).sort({ name: 1 });
+    const filter = { business: req.businessId };
+    // the suppliers of the store being worked in
+    await applyWorkingShop(req, filter);
+    const suppliers = await Supplier.find(filter).sort({ name: 1 });
     res.json({ suppliers: suppliersForUser(req, suppliers) });
   } catch (err) {
     next(err);
@@ -82,7 +86,8 @@ async function createSupplier(req, res, next) {
   try {
     const data = pickSupplierFields(req.body);
     if (!data.name || !String(data.name).trim()) throw httpError(400, 'Supplier name is required');
-    await assertPhoneIsFree(req.businessId, data.phone);
+    const shop = await shopForNewRecord(req);
+    await assertPhoneIsFree(req.businessId, data.phone, undefined, shop);
 
     // What was already owed to this supplier before LogBase. Only the administrator can enter it.
     let opening = 0;
@@ -94,7 +99,7 @@ async function createSupplier(req, res, next) {
       opening = round2(opening);
     }
 
-    const supplier = await Supplier.create({ ...data, business: req.businessId, openingBalance: opening, balance: opening });
+    const supplier = await Supplier.create({ ...data, business: req.businessId, shop, openingBalance: opening, balance: opening });
     if (opening > 0) {
       logActivity(req, {
         action: 'payment.supplier_opening',
@@ -113,7 +118,8 @@ async function createSupplier(req, res, next) {
 async function updateSupplier(req, res, next) {
   try {
     const data = pickSupplierFields(req.body);
-    await assertPhoneIsFree(req.businessId, data.phone, req.params.id);
+    const current = await Supplier.findOne({ _id: req.params.id, business: req.businessId }).select('shop');
+    await assertPhoneIsFree(req.businessId, data.phone, req.params.id, current && current.shop);
 
     const supplier = await Supplier.findOneAndUpdate(
       { _id: req.params.id, business: req.businessId },

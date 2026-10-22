@@ -3,6 +3,8 @@ const mongoose = require('mongoose');
 const customerSchema = new mongoose.Schema(
   {
     business: { type: mongoose.Schema.Types.ObjectId, ref: 'Business', required: true, index: true },
+    // the store this belongs to (empty = the main store)
+    shop: { type: mongoose.Schema.Types.ObjectId },
     name: { type: String, required: true, trim: true },
     phone: { type: String, trim: true },
     email: { type: String, trim: true },

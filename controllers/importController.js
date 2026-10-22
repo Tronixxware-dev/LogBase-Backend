@@ -1,4 +1,5 @@
 const Product = require('../models/Product');
+const { resolveShop, incRow, shopForNewRecord } = require('../utils/shopStock');
 const Customer = require('../models/Customer');
 const { ensureCategory } = require('../utils/categories');
 const { httpError } = require('../utils/httpError');
@@ -6,6 +7,7 @@ const { phoneKey } = require('../utils/phone');
 const { logActivity } = require('../utils/audit');
 const { entitlements } = require('../utils/billing');
 const { cleanProductRow, cleanCustomerRow } = require('../utils/importRows');
+const { loadPreferences } = require('../utils/settings');
 
 const MAX_ROWS = 200; // per request: the page sends bigger files in several requests
 
@@ -34,10 +36,14 @@ function skippedSummary(skipped) {
 async function importProducts(req, res, next) {
   try {
     const items = readRows(req.body);
+    const shop = await resolveShop(req, undefined, { strict: true });
+    const prefs = await loadPreferences(req.businessId);
 
     const ent = await entitlements(req.businessId);
     const existing = await Product.find({ business: req.businessId, isActive: true }).select('name');
-    const taken = new Set(existing.map((p) => nameKey(p.name)));
+    // each store has its own products, so a name only clashes with one in the same store
+    const sameStore = await Product.find({ business: req.businessId, isActive: true, shop: shop.id || null }).select('name');
+    const taken = new Set(sameStore.map((p) => nameKey(p.name)));
     let room = ent.limits.stocks == null ? Infinity : Math.max(0, ent.limits.stocks - existing.length);
 
     const created = [];
@@ -48,13 +54,17 @@ async function importProducts(req, res, next) {
       if (cleaned.error) { skipped.push({ line, name: label, reason: cleaned.error }); continue; }
 
       const data = cleaned.value;
+      // no low-stock level in the file: the business's usual one
+      if (data.reorderThreshold === undefined) data.reorderThreshold = prefs.defaultReorderLevel;
       const key = nameKey(data.name);
       if (taken.has(key)) { skipped.push({ line, name: data.name, reason: 'A product with this name already exists' }); continue; }
       if (room < 1) { skipped.push({ line, name: data.name, reason: `Your ${ent.planName} plan allows up to ${ent.limits.stocks} stocks` }); continue; }
 
       try {
         if (data.category) data.category = (await ensureCategory(req.businessId, data.category)).category.name;
-        await Product.create({ ...data, business: req.businessId });
+        const made = await Product.create({ ...data, business: req.businessId, shop: shop.id || undefined });
+        // opening stock goes into the store the person is working in
+        if (shop.id && made.quantity > 0) await incRow(req.businessId, made._id, null, shop.id, made.quantity);
         taken.add(key);
         room -= 1;
         created.push(data.name);
@@ -82,7 +92,8 @@ async function importCustomers(req, res, next) {
   try {
     const items = readRows(req.body);
 
-    const saved = await Customer.find({ business: req.businessId, phone: { $exists: true, $ne: '' } }).select('phone');
+    const shop = await shopForNewRecord(req);
+    const saved = await Customer.find({ business: req.businessId, shop: shop || null, phone: { $exists: true, $ne: '' } }).select('phone');
     const phones = new Set(saved.map((c) => phoneKey(c.phone)));
 
     const created = [];
@@ -98,7 +109,7 @@ async function importCustomers(req, res, next) {
       if (key && phones.has(key)) { skipped.push({ line, name: data.name, reason: 'This phone number is already saved for a customer' }); continue; }
 
       try {
-        await Customer.create({ ...data, business: req.businessId });
+        await Customer.create({ ...data, business: req.businessId, shop });
         if (key) phones.add(key);
         owed += data.balance || 0;
         created.push(data.name);

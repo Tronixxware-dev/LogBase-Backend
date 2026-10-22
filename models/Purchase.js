@@ -17,6 +17,9 @@ const purchaseSchema = new mongoose.Schema(
     // Set when the product has colour / size variants. variantLabel is a snapshot, e.g. "Red / M".
     variant: { type: mongoose.Schema.Types.ObjectId },
     variantLabel: { type: String, trim: true },
+    // The store the stock came out of (or went into). Empty = the main store, which is also every record made before stores existed.
+    shop: { type: mongoose.Schema.Types.ObjectId, ref: 'Shop' },
+    shopName: { type: String, trim: true },
     supplier: { type: mongoose.Schema.Types.ObjectId, ref: 'Supplier' },
     supplierName: { type: String, trim: true },
     // Who recorded / received the goods (the owner or a staff member). Defaults to the logged-in user.

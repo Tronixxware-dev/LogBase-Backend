@@ -24,6 +24,8 @@ const userSchema = new mongoose.Schema(
       publicId: { type: String },
     },
     isActive: { type: Boolean, default: true },
+    // Which alerts this person wants (see utils/notifications.js). A kind that is missing is on. `email` also sends the important ones by email.
+    notificationPrefs: { type: mongoose.Schema.Types.Mixed, default: undefined },
     // Forgot password: only a fingerprint (sha256) of the emailed token is kept, never the token itself.
     resetTokenHash: { type: String },
     resetTokenExpires: { type: Date },

@@ -15,6 +15,8 @@ const auditLogSchema = new mongoose.Schema(
     summary: { type: String, required: true, trim: true },
     entityType: { type: String, trim: true },
     entityId: { type: mongoose.Schema.Types.ObjectId },
+    // the store the person was working in (empty = the main store)
+    shop: { type: mongoose.Schema.Types.ObjectId },
     // small extra facts (amounts, quantities). Never passwords, tokens or other secrets.
     meta: { type: mongoose.Schema.Types.Mixed },
   },

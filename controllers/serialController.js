@@ -3,6 +3,7 @@ const Product = require('../models/Product');
 const { httpError } = require('../utils/httpError');
 const { can, canSeeCosts } = require('../utils/permissions');
 const { warrantyState } = require('../utils/serials');
+const { resolveShop, listShops } = require('../utils/shopStock');
 
 function escapeRegex(text) {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -58,7 +59,15 @@ async function lookup(req, res, next) {
 
     const products = await Product.find({ _id: { $in: units.map((u) => u.product) }, business: req.businessId });
     const nameOf = new Map(products.map((p) => [String(p._id), p.name]));
-    res.json({ query: q, units: units.map((u) => unitView(req, u, nameOf.get(String(u.product)))) });
+    // where each unit is, when the business has more than one store
+    const shops = await listShops(req.businessId);
+    const where = (u) => {
+      if (shops.length < 2 || u.status !== 'in_stock') return '';
+      if (!u.shop) return (shops.find((x) => x.isMain) || {}).name || '';
+      const hit = shops.find((x) => String(x._id) === String(u.shop));
+      return hit ? hit.name : 'On its way between stores';
+    };
+    res.json({ query: q, units: units.map((u) => ({ ...unitView(req, u, nameOf.get(String(u.product))), store: where(u) })) });
   } catch (err) {
     next(err);
   }
@@ -69,7 +78,9 @@ async function lookup(req, res, next) {
 async function available(req, res, next) {
   try {
     if (!req.query.product) throw httpError(400, 'Choose a product');
-    const filter = { business: req.businessId, product: String(req.query.product), status: 'in_stock' };
+    // only the units in the store the person is working in (units of the main store have no store id)
+    const shop = await resolveShop(req, req.query.shop);
+    const filter = { business: req.businessId, product: String(req.query.product), status: 'in_stock', shop: shop.id || null };
     if (req.query.variant) filter.variant = String(req.query.variant);
     const units = await SerialUnit.find(filter).sort({ receivedAt: 1, createdAt: 1 }).limit(1000);
     res.json({ serials: units.map((u) => u.serial) });

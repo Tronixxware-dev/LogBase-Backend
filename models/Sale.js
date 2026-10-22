@@ -8,6 +8,25 @@ const saleImageSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// An item swap: the customer handed in an old item and it was taken off the price of the new one.
+// Kept on the first line of the sale. creditApplied + cashTopUp is what counts as paid on the sale.
+const tradeInSchema = new mongoose.Schema(
+  {
+    description: { type: String, required: true, trim: true, maxlength: 120 },
+    imei: { type: String, trim: true, maxlength: 40 },
+    condition: { type: String, trim: true, maxlength: 80 },
+    // what the old item was worth to the business
+    value: { type: Number, required: true, min: 0 },
+    // the part of the new price covered by the old item
+    creditApplied: { type: Number, default: 0, min: 0 },
+    // the part of the top-up the customer paid
+    cashTopUp: { type: Number, default: 0, min: 0 },
+    // given back to the customer when the old item was worth more than the new one
+    refundGiven: { type: Number, default: 0, min: 0 },
+  },
+  { _id: false }
+);
+
 const saleSchema = new mongoose.Schema(
   {
     business: { type: mongoose.Schema.Types.ObjectId, ref: 'Business', required: true, index: true },
@@ -15,6 +34,9 @@ const saleSchema = new mongoose.Schema(
     // Set when the product has colour / size variants. variantLabel is a snapshot, e.g. "Red / M".
     variant: { type: mongoose.Schema.Types.ObjectId },
     variantLabel: { type: String, trim: true },
+    // The store the stock came out of (or went into). Empty = the main store, which is also every record made before stores existed.
+    shop: { type: mongoose.Schema.Types.ObjectId, ref: 'Shop' },
+    shopName: { type: String, trim: true },
     customer: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer' },
     // Sales recorded together (one customer buying several colours / items at once) share this id.
     saleGroup: { type: mongoose.Schema.Types.ObjectId, index: true },
@@ -49,6 +71,8 @@ const saleSchema = new mongoose.Schema(
     deliveryCost: { type: Number, default: 0, min: 0 },
     // Photos the seller attached to this sale
     images: [saleImageSchema],
+    // Only on item swaps (see tradeInSchema), on the first line of the sale
+    tradeIn: { type: tradeInSchema },
     // An id the app makes up for each sale it sends (kept on the first line of a sale only). If the same sale is sent
     // twice (the answer got lost, or a sale recorded while offline is sent again) it is recorded once.
     clientId: { type: String, trim: true },

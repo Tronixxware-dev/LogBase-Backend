@@ -98,4 +98,20 @@ const coverUpload = multer({
   fileFilter: imageOnly,
 });
 
-module.exports = { cloudinary, upload, saleUpload, purchaseUpload, avatarUpload, coverUpload };
+// The business logo (Settings > Organization): one picture, kept whole (not cropped), at most 3 MB. A PNG keeps its see-through background.
+const logoStorage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: 'logbase/logos',
+    allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+    transformation: [{ width: 600, height: 600, crop: 'limit' }],
+  },
+});
+
+const logoUpload = multer({
+  storage: logoStorage,
+  limits: { fileSize: 3 * 1024 * 1024, files: 1 },
+  fileFilter: imageOnly,
+});
+
+module.exports = { cloudinary, upload, saleUpload, purchaseUpload, avatarUpload, coverUpload, logoUpload };

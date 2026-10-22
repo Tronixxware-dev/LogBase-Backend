@@ -1,5 +1,6 @@
 const AuditLog = require('../models/AuditLog');
 const { ACTIVITY_CATEGORIES } = require('../utils/audit');
+const { applyWorkingShop } = require('../utils/shopStock');
 
 const PAGE_SIZE = 50;
 
@@ -13,6 +14,8 @@ function escapeRegex(text) {
 async function listActivity(req, res, next) {
   try {
     const filter = { business: req.businessId };
+    // what happened in the store being worked in
+    await applyWorkingShop(req, filter);
 
     const category = typeof req.query.category === 'string' ? req.query.category : '';
     if (category && ACTIVITY_CATEGORIES.some((c) => c.key === category)) {

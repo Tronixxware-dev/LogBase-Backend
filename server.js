@@ -17,12 +17,20 @@ const saleRoutes = require('./routes/saleRoutes');
 const roleRoutes = require('./routes/roleRoutes');
 const returnRoutes = require('./routes/returnRoutes');
 const stockAdjustmentRoutes = require('./routes/stockAdjustmentRoutes');
+const settingsRoutes = require('./routes/settingsRoutes');
+const approvalRoutes = require('./routes/approvalRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
 const activityRoutes = require('./routes/activityRoutes');
 const billingRoutes = require('./routes/billingRoutes');
 const expenseRoutes = require('./routes/expenseRoutes');
 const importRoutes = require('./routes/importRoutes');
 const serialRoutes = require('./routes/serialRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+const swapRoutes = require('./routes/swapRoutes');
+const repairRoutes = require('./routes/repairRoutes');
+const laundryRoutes = require('./routes/laundryRoutes');
+const shopRoutes = require('./routes/shopRoutes');
+const transferRoutes = require('./routes/transferRoutes');
 const { startRenewalScheduler, stopRenewalScheduler } = require('./utils/renewals');
 
 connectDB();
@@ -60,9 +68,17 @@ app.use('/api/customers', customerRoutes);
 app.use('/api/suppliers', supplierRoutes);
 app.use('/api/purchases', purchaseRoutes);
 app.use('/api/sales', saleRoutes);
+app.use('/api/swaps', swapRoutes); // item swaps: the list (a swap is recorded as a sale with a trade-in)
+app.use('/api/repairs', repairRoutes); // repair jobs
+app.use('/api/laundry', laundryRoutes); // the laundry register and its list of clothing items
+app.use('/api/shops', shopRoutes); // the stores of a business (the main store and any others)
+app.use('/api/transfers', transferRoutes); // stock sent from one store to another
 app.use('/api/roles', roleRoutes);
 app.use('/api/returns', returnRoutes);
 app.use('/api/stock-adjustments', stockAdjustmentRoutes);
+app.use('/api/settings', settingsRoutes); // the business identity, preferences and approval policies
+app.use('/api/approvals', approvalRoutes); // staff requests waiting for the administrator's OK
+app.use('/api/notifications', notificationRoutes); // the bell: alerts and who wants which
 app.use('/api/activity', activityRoutes);
 app.use('/api/billing', billingRoutes);
 app.use('/api/expenses', expenseRoutes);

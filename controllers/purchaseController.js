@@ -12,6 +12,7 @@ const SerialUnit = require('../models/SerialUnit');
 const { cleanSerialList } = require('../utils/serials');
 const { assertSerialsNew, receivedUnitDocs } = require('../utils/serialUnits');
 const { round2 } = require('../utils/money');
+const { resolveShop, applyShopFilter, incRow } = require('../utils/shopStock');
 
 const MAX_PURCHASE_PHOTOS = 8;
 
@@ -65,7 +66,9 @@ function readBody(req) {
 async function listPurchases(req, res, next) {
   try {
     // only the administrator ever gets supplier details
-    let query = Purchase.find({ business: req.businessId }).populate('product', 'name sku images');
+    const filter = { business: req.businessId };
+    await applyShopFilter(req, filter);
+    let query = Purchase.find(filter).populate('product', 'name sku images');
     if (canSeeCosts(req.user)) query = query.populate('supplier', 'name');
     const purchases = await query.sort({ date: -1, createdAt: -1 });
     res.json({ purchases: purchasesForUser(req, purchases) });
@@ -142,7 +145,9 @@ function undoStock(businessId, step) {
   } else if (!step.keepCost && step.previousCost !== undefined && step.previousCost !== null) {
     update.$set = { costPrice: step.previousCost };
   }
-  return Product.updateOne(filter, update).catch(() => {});
+  return Product.updateOne(filter, update)
+    .then(() => (step.shopId ? incRow(businessId, step.productId, step.variantId, step.shopId, -step.qty, { upsert: false }) : null))
+    .catch(() => {});
 }
 
 // Records one purchase. Several colours (or items) received at once are sent as `items`;
@@ -163,6 +168,8 @@ async function createPurchase(req, res, next) {
 
     const { supplier: supplierId, purchasedBy, batchNumber, date } = body;
     const isOwner = canSeeCosts(req.user);
+    // the store the goods are received into
+    const shop = await resolveShop(req, body.shop, { strict: true });
 
     const rawItems =
       Array.isArray(body.items) && body.items.length > 0
@@ -244,7 +251,10 @@ async function createPurchase(req, res, next) {
         qty,
         previousCost: line.previousCost,
         keepCost,
+        shopId: shop.id || null,
       });
+      // received into a store other than the main store: that store's own count goes up too
+      if (shop.id) await incRow(req.businessId, product._id, variant ? variant._id : null, shop.id, qty);
       updatedProducts.set(String(product._id), updated);
     }
 
@@ -261,6 +271,7 @@ async function createPurchase(req, res, next) {
         supplierName: supplier ? supplier.name : undefined,
         date: purchaseDate,
         cost: line.cost,
+        shopId: shop.id,
       })
     );
     if (unitDocs.length > 0) {
@@ -289,6 +300,8 @@ async function createPurchase(req, res, next) {
       product: line.product._id,
       variant: line.variant ? line.variant._id : undefined,
       variantLabel: line.variant ? variantLabel(line.variant) : undefined,
+      shop: shop.id || undefined,
+      shopName: shop.name,
       supplier: supplier ? supplier._id : undefined,
       supplierName: supplier ? supplier.name : undefined,
       purchasedBy: clean(purchasedBy) || req.user.name,

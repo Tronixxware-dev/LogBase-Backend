@@ -9,10 +9,13 @@ const { productForUser, productsForUser, saleForUser, salesForUser } = require('
 const { withSellerPhotos, withSellerPhoto } = require('../utils/sellerPhotos');
 const { can } = require('../utils/permissions');
 const { logActivity } = require('../utils/audit');
+const { notifyOwners, checkLowStock } = require('../utils/notifications');
 const SaleReturn = require('../models/SaleReturn');
 const { returnsForUser } = require('../utils/staffView');
 const { cleanSerialList, readWarrantyMonths, addMonths } = require('../utils/serials');
 const { claimForSale, undoClaim } = require('../utils/serialUnits');
+const { readTradeIn, swapAmounts } = require('../utils/swap');
+const { resolveShop, takeStock, takenRecord, restoreTaken, quantityInShop, applyShopFilter } = require('../utils/shopStock');
 
 // Everyone with "See all sales" / "See insights" sees every sale; anyone else only the ones they recorded.
 function seesAllSales(req) {
@@ -57,6 +60,8 @@ async function listSales(req, res, next) {
   try {
     const filter = { business: req.businessId };
     if (!seesAllSales(req)) filter.recordedBy = req.user._id;
+    // ?shop=<store id> (or "main") shows only the sales made from that store; leave it out for every store
+    await applyShopFilter(req, filter);
 
     const sales = await Sale.find(filter)
       .populate('product', 'name sku images')
@@ -69,7 +74,7 @@ async function listSales(req, res, next) {
 }
 
 // Reads one line of a sale from the request and checks it against the product's stock.
-async function prepareLine(businessId, raw, position) {
+async function prepareLine(businessId, raw, position, shop) {
   const qty = Number(raw.quantity);
   const price = Number(raw.unitPrice);
   const label = `Item ${position}`;
@@ -91,7 +96,8 @@ async function prepareLine(businessId, raw, position) {
     throw httpError(400, `${label}: ${product.name} has no colours / sizes`);
   }
 
-  const available = variant ? variant.quantity : product.quantity;
+  // what the store the sale is made from holds (the whole business when it has one store)
+  const available = await quantityInShop(businessId, product, variant, shop);
   if (available < qty) {
     const what = variant ? `${product.name} (${variantLabel(variant)})` : product.name;
     throw httpError(400, `Not enough stock for ${what}. Only ${available} left.`);
@@ -147,6 +153,7 @@ async function createSale(req, res, next) {
   let groupId = null;
   const files = req.files || []; // photos already uploaded by multer; removed again if the sale fails
   let clientId = null;
+  let shop = null;
 
   try {
     const body = readBody(req);
@@ -161,6 +168,9 @@ async function createSale(req, res, next) {
     }
 
     const { customer: customerId, customerName, amountPaid, paymentMethod, date } = body;
+
+    // the store the stock comes out of: the one named in the sale (a sale recorded offline names it), else the one the person is working in
+    shop = await resolveShop(req, body.shop, { strict: true });
 
     const rawItems =
       Array.isArray(body.items) && body.items.length > 0
@@ -178,10 +188,15 @@ async function createSale(req, res, next) {
 
     if (rawItems.length > 50) throw httpError(400, 'A sale can have at most 50 items.');
 
+    // An item swap: the customer hands in an old item that is taken off the price of the new one.
+    // It is one new item per swap, and `amountPaid` then means the cash the customer paid towards the top-up.
+    const tradeIn = readTradeIn(body);
+    if (tradeIn && rawItems.length !== 1) throw httpError(400, 'An item swap is for one new item. Record other items as a separate sale.');
+
     const lines = [];
     const seen = new Set();
     for (let i = 0; i < rawItems.length; i += 1) {
-      const line = await prepareLine(req.businessId, rawItems[i] || {}, i + 1);
+      const line = await prepareLine(req.businessId, rawItems[i] || {}, i + 1, shop);
       const key = `${line.product._id}|${line.variant ? line.variant._id : ''}`;
       if (seen.has(key)) {
         const what = line.variant ? `${line.product.name} (${variantLabel(line.variant)})` : line.product.name;
@@ -201,9 +216,17 @@ async function createSale(req, res, next) {
     }
 
     const grandTotal = lines.reduce((sum, l) => sum + l.totalAmount, 0);
-    let paid = amountPaid == null || amountPaid === '' ? grandTotal : Number(amountPaid);
-    if (!Number.isFinite(paid) || paid < 0) throw httpError(400, 'amountPaid must be 0 or more');
-    paid = Math.min(paid, grandTotal);
+    let paid;
+    let swap = null;
+    if (tradeIn) {
+      // the old item's value counts as paid; the customer pays the rest (the top-up) in cash, transfer or card
+      swap = swapAmounts(grandTotal, tradeIn.value, amountPaid);
+      paid = swap.paid;
+    } else {
+      paid = amountPaid == null || amountPaid === '' ? grandTotal : Number(amountPaid);
+      if (!Number.isFinite(paid) || paid < 0) throw httpError(400, 'amountPaid must be 0 or more');
+      paid = Math.min(paid, grandTotal);
+    }
 
     const delivery = readDelivery(body);
 
@@ -226,21 +249,16 @@ async function createSale(req, res, next) {
     const updatedProducts = new Map();
     for (const line of lines) {
       const { product, variant, qty } = line;
-      const filter = { _id: product._id, business: req.businessId };
-      const inc = { quantity: -qty };
-      if (variant) {
-        filter.variants = { $elemMatch: { _id: variant._id, quantity: { $gte: qty } } };
-        inc['variants.$.quantity'] = -qty;
-      } else {
-        filter.quantity = { $gte: qty };
-      }
-
-      const updated = await Product.findOneAndUpdate(filter, { $inc: inc }, { new: true });
-      if (!updated) {
-        const what = variant ? `${product.name} (${variantLabel(variant)})` : product.name;
-        throw httpError(400, `Not enough stock for ${what}. Someone may have just sold the last items.`);
-      }
-      taken.push({ productId: product._id, variantId: variant ? variant._id : null, qty });
+      const what = variant ? `${product.name} (${variantLabel(variant)})` : product.name;
+      const updated = await takeStock({
+        businessId: req.businessId,
+        product,
+        variant,
+        qty,
+        shop,
+        notEnough: `Not enough stock for ${what}. Someone may have just sold the last items.`,
+      });
+      taken.push(takenRecord(product, variant, qty, shop));
       updatedProducts.set(String(product._id), updated);
     }
 
@@ -257,6 +275,7 @@ async function createSale(req, res, next) {
         product: line.product,
         variant: line.variant,
         variantText: line.variant ? variantLabel(line.variant) : undefined,
+        shopId: shop.id,
         serials: line.serials,
         saleId: line.saleId,
         saleGroup: groupId,
@@ -284,6 +303,8 @@ async function createSale(req, res, next) {
         product: line.product._id,
         variant: line.variant ? line.variant._id : undefined,
         variantLabel: line.variant ? variantLabel(line.variant) : undefined,
+        shop: shop.id || undefined,
+        shopName: shop.name,
         customer: customer ? customer._id : undefined,
         customerName: clean(customerName) || (customer ? customer.name : ''),
         // every sale carries the name of the person who is signed in and recorded it
@@ -302,6 +323,10 @@ async function createSale(req, res, next) {
         deliveryPaidByUs: index === 0 ? delivery.deliveryPaidByUs : false,
         deliveryCost: index === 0 ? delivery.deliveryCost : 0,
         images: index === 0 ? photos : [],
+        tradeIn:
+          index === 0 && tradeIn
+            ? { ...tradeIn, creditApplied: swap.credit, cashTopUp: swap.cash, refundGiven: swap.refund }
+            : undefined,
         clientId: index === 0 && clientId ? clientId : undefined,
         recordedBy: req.user._id,
       };
@@ -317,13 +342,40 @@ async function createSale(req, res, next) {
     }
 
     const what = lines.length === 1 ? `${lines[0].qty} × ${lines[0].product.name}` : `${lines.length} items`;
-    logActivity(req, {
-      action: 'sale.create',
-      summary: `Recorded a sale of ${money(grandTotal)} (${what}) to ${clean(customerName) || customer.name}${paid < grandTotal ? `, ${money(grandTotal - paid)} still owed` : ''}`,
-      entityType: 'Sale',
-      entityId: sales[0]._id,
-      meta: { total: grandTotal, paid, items: lines.length },
-    });
+    if (tradeIn) {
+      logActivity(req, {
+        action: 'swap.create',
+        summary: `Item swap for ${clean(customerName) || customer.name}: handed in ${tradeIn.description} (${money(tradeIn.value)}) and took ${what} (${money(grandTotal)}). ${
+          swap.refund > 0 ? `Gave back ${money(swap.refund)}.` : `Top-up ${money(swap.due)}${swap.cash < swap.due ? `, ${money(swap.due - swap.cash)} still owed` : ' paid'}.`
+        }`,
+        entityType: 'Sale',
+        entityId: sales[0]._id,
+        meta: { total: grandTotal, tradeInValue: tradeIn.value, topUp: swap.due, cashPaid: swap.cash, refund: swap.refund },
+      });
+    } else {
+      logActivity(req, {
+        action: 'sale.create',
+        summary: `Recorded a sale of ${money(grandTotal)} (${what}) to ${clean(customerName) || customer.name}${paid < grandTotal ? `, ${money(grandTotal - paid)} still owed` : ''}`,
+        entityType: 'Sale',
+        entityId: sales[0]._id,
+        meta: { total: grandTotal, paid, items: lines.length },
+      });
+    }
+
+    // alerts for the administrator (never blocks the sale)
+    if (req.user.role !== 'owner' && !req.approvedBy && paid < grandTotal && !tradeIn) {
+      notifyOwners(
+        req.businessId,
+        { type: 'creditSale', title: `${req.user.name} recorded a sale on credit`, body: `${money(grandTotal)} to ${clean(customerName) || customer.name}, ${money(grandTotal - paid)} still owed.`, link: `/dashboard/sales/${sales[0]._id}` },
+        { exceptUserId: req.user._id }
+      );
+    }
+    const sold = new Map();
+    for (const line of lines) sold.set(String(line.product._id), (sold.get(String(line.product._id)) || 0) + line.qty);
+    for (const [id, qty] of sold) {
+      const now = updatedProducts.get(id);
+      if (now) checkLowStock(req.businessId, { productId: now._id, name: now.name, before: now.quantity + qty, after: now.quantity, level: now.reorderThreshold });
+    }
 
     res.status(201).json({
       sale: saleForUser(req, sales[0]), // photos are attached to the first line
@@ -336,15 +388,7 @@ async function createSale(req, res, next) {
     await undoClaim(req.businessId, claimed);
     // the sale was not recorded, so its photos must not pile up in Cloudinary
     await Promise.all(files.map((f) => cloudinary.uploader.destroy(f.filename).catch(() => {})));
-    for (const t of taken) {
-      const filter = { _id: t.productId, business: req.businessId };
-      const inc = { quantity: t.qty };
-      if (t.variantId) {
-        filter['variants._id'] = t.variantId;
-        inc['variants.$.quantity'] = t.qty;
-      }
-      await Product.updateOne(filter, { $inc: inc }).catch(() => {});
-    }
+    for (const t of taken) await restoreTaken(req.businessId, t);
     // Two copies of the same sale arrived at the same moment, and the other copy got there first: its stock or IMEI
     // numbers are why this one failed, and its sale is about to be saved. Look for it for a moment instead of
     // telling the person their sale failed. (Only for the kinds of failure a clash can cause.)

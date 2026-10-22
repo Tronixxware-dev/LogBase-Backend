@@ -5,7 +5,7 @@ const mongoose = require('mongoose');
 // where each came from, who bought it and until when its warranty runs.
 const eventSchema = new mongoose.Schema(
   {
-    type: { type: String, enum: ['received', 'sold', 'returned', 'written_off'], required: true },
+    type: { type: String, enum: ['received', 'sold', 'returned', 'written_off', 'transferred'], required: true },
     at: { type: Date, default: Date.now },
     // who it was sold to / returned by, or a short note
     note: { type: String, trim: true },
@@ -21,6 +21,8 @@ const serialUnitSchema = new mongoose.Schema(
     product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
     variant: { type: mongoose.Schema.Types.ObjectId },
     variantLabel: { type: String, trim: true },
+    // Which store holds it. Empty = the main store. While a transfer is on its way this is the transfer's id.
+    shop: { type: mongoose.Schema.Types.ObjectId },
     // upper case, no spaces (see utils/serials.js). One number can exist only once per business.
     serial: { type: String, required: true, trim: true },
     status: { type: String, enum: ['in_stock', 'sold', 'written_off'], default: 'in_stock' },

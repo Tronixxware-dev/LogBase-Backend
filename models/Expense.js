@@ -6,6 +6,8 @@ const mongoose = require('mongoose');
 const expenseSchema = new mongoose.Schema(
   {
     business: { type: mongoose.Schema.Types.ObjectId, ref: 'Business', required: true, index: true },
+    // the store this belongs to (empty = the main store)
+    shop: { type: mongoose.Schema.Types.ObjectId },
     category: {
       type: String,
       enum: ['rent', 'salaries', 'transport', 'power', 'internet', 'marketing', 'packaging', 'repairs', 'taxes', 'other'],

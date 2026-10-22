@@ -5,6 +5,8 @@ const {
   createProduct,
   updateProduct,
   deleteProduct,
+  restoreProduct,
+  setLowStockThreshold,
   addVariant,
   updateVariant,
   deleteVariant,
@@ -26,6 +28,8 @@ router.get('/:id', requirePermission('recordSales', 'viewStock', 'manageProducts
 // Changing products needs the "Manage products" permission (the owner always has it).
 const manage = requirePermission('manageProducts');
 router.post('/', manage, createProduct);
+router.put('/low-stock-threshold', manage, setLowStockThreshold);
+router.post('/:id/restore', manage, restoreProduct);
 router.put('/:id', manage, updateProduct);
 router.delete('/:id', manage, deleteProduct);
 

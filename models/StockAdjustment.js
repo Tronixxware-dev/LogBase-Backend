@@ -9,6 +9,9 @@ const stockAdjustmentSchema = new mongoose.Schema(
     productName: { type: String, trim: true },
     variant: { type: mongoose.Schema.Types.ObjectId },
     variantLabel: { type: String, trim: true },
+    // The store the stock came out of (or went into). Empty = the main store, which is also every record made before stores existed.
+    shop: { type: mongoose.Schema.Types.ObjectId, ref: 'Shop' },
+    shopName: { type: String, trim: true },
 
     type: {
       type: String,

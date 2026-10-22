@@ -2,6 +2,7 @@ const Expense = require('../models/Expense');
 const { httpError } = require('../utils/httpError');
 const { round2 } = require('../utils/money');
 const { logActivity } = require('../utils/audit');
+const { applyWorkingShop, shopForNewRecord } = require('../utils/shopStock');
 
 const CATEGORIES = {
   rent: 'Rent',
@@ -63,6 +64,7 @@ async function createExpense(req, res, next) {
 
     const expense = await Expense.create({
       business: req.businessId,
+      shop: await shopForNewRecord(req),
       category,
       amount,
       description,
@@ -91,6 +93,8 @@ async function createExpense(req, res, next) {
 async function listExpenses(req, res, next) {
   try {
     const filter = { business: req.businessId };
+    // the expenses of the store being worked in
+    await applyWorkingShop(req, filter);
     const from = parseDay(req.query.from, 'from');
     const to = parseDay(req.query.to, 'to');
     if (from || to) {

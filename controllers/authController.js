@@ -10,6 +10,8 @@ const { logActivity } = require('../utils/audit');
 const { assertCanAddStaff } = require('../utils/billing');
 const { checkPassword } = require('../utils/passwordPolicy');
 const { isSuperAdminEmail } = require('../utils/superAdmin');
+const { DEFAULT_BUSINESS_TYPE, cleanBusinessType } = require('../utils/businessTypes');
+const { settingsOf } = require('../utils/settings');
 const { loginGuard, changePasswordGuard, clientIp, lockedMessage: tooManyAttempts } = require('../utils/rateLimit');
 const {
   permissionsOf,
@@ -23,7 +25,8 @@ function signToken(user) {
   });
 }
 
-function sanitizeUser(user, businessName) {
+// `business` is the business record (or just { name, businessType }); it adds the business name and type to the answer.
+function sanitizeUser(user, business) {
   const out = {
     id: user._id,
     name: user.name,
@@ -41,13 +44,18 @@ function sanitizeUser(user, businessName) {
     isSuperAdmin: isSuperAdminEmail(user.email),
     createdAt: user.createdAt,
   };
-  if (businessName) out.businessName = businessName;
+  if (business) {
+    if (business.name) out.businessName = business.name;
+    // decides which menus and pages the front end shows (older businesses have none saved: they are phone shops)
+    out.businessType = business.businessType || DEFAULT_BUSINESS_TYPE;
+    // the business identity, preferences and approval rules (receipts, default choices and the approval notices use them)
+    out.settings = settingsOf(business);
+  }
   return out;
 }
 
-async function businessNameOf(businessId) {
-  const business = await Business.findById(businessId).select('name');
-  return business ? business.name : undefined;
+async function businessOf(businessId) {
+  return Business.findById(businessId).select('name email phone address website taxId logoUrl businessType receipt preferences approvalPolicies');
 }
 
 async function registerBusiness(req, res, next) {
@@ -60,12 +68,16 @@ async function registerBusiness(req, res, next) {
     const weak = checkPassword(password, { email: String(ownerEmail), name: String(ownerName) });
     if (weak) return res.status(400).json({ message: weak });
 
+    // the kind of business decides the menus; a sign-up that sends none (an older app) is a phone & gadget shop
+    const businessType = req.body.businessType === undefined ? DEFAULT_BUSINESS_TYPE : cleanBusinessType(req.body.businessType);
+    if (!businessType) return res.status(400).json({ message: 'Choose the type of business' });
+
     const existingBusiness = await Business.findOne({ email: businessEmail.toLowerCase() });
     if (existingBusiness) {
       return res.status(409).json({ message: 'A business with that email already exists' });
     }
 
-    const business = await Business.create({ name: businessName, email: businessEmail });
+    const business = await Business.create({ name: businessName, email: businessEmail, businessType });
 
     const passwordHash = await bcrypt.hash(password, 10);
     const owner = await User.create({
@@ -85,7 +97,7 @@ async function registerBusiness(req, res, next) {
     }
 
     const token = signToken(owner);
-    res.status(201).json({ token, user: sanitizeUser(owner, business.name), business });
+    res.status(201).json({ token, user: sanitizeUser(owner, business), business });
   } catch (err) {
     next(err);
   }
@@ -247,7 +259,7 @@ async function login(req, res, next) {
     }
 
     // a suspended business cannot log in (the LogBase owner can always get in)
-    const business = await Business.findById(user.business).select('name isActive suspendedReason');
+    const business = await Business.findById(user.business).select('name email phone address website taxId logoUrl businessType receipt preferences approvalPolicies isActive suspendedReason');
     if (business && business.isActive === false && !isSuperAdminEmail(user.email)) {
       return res.status(403).json({
         message: business.suspendedReason
@@ -257,7 +269,7 @@ async function login(req, res, next) {
     }
 
     const token = signToken(user);
-    res.json({ token, user: sanitizeUser(user, business ? business.name : undefined) });
+    res.json({ token, user: sanitizeUser(user, business) });
   } catch (err) {
     next(err);
   }
@@ -265,7 +277,7 @@ async function login(req, res, next) {
 
 async function getMe(req, res, next) {
   try {
-    res.json({ user: sanitizeUser(req.user, await businessNameOf(req.user.business)) });
+    res.json({ user: sanitizeUser(req.user, await businessOf(req.user.business)) });
   } catch (err) {
     next(err);
   }
@@ -275,7 +287,7 @@ async function getMe(req, res, next) {
 // (Email, role and permissions are not changed here: the email is the sign-in, the rest is the owner's call.)
 async function updateMe(req, res, next) {
   try {
-    const { name, phone, businessName } = req.body;
+    const { name, phone, businessName, businessType } = req.body;
     const me = req.user;
 
     if (name !== undefined) {
@@ -291,16 +303,29 @@ async function updateMe(req, res, next) {
       me.phone = trimmed;
     }
 
+    // check everything first, then write: a request that is refused changes nothing
+    let newBusinessName = null;
     if (businessName !== undefined) {
       if (me.role !== 'owner') throw httpError(403, 'Only the administrator can change the business name');
       const trimmed = typeof businessName === 'string' ? businessName.replace(/\s+/g, ' ').trim() : '';
       if (!trimmed) throw httpError(400, 'The business name cannot be empty');
       if (trimmed.length > 80) throw httpError(400, 'The business name can be at most 80 characters');
-      await Business.findByIdAndUpdate(me.business, { name: trimmed });
+      newBusinessName = trimmed;
     }
 
+    // the administrator can change the kind of business later (this changes the menus, not any records)
+    let newBusinessType = null;
+    if (businessType !== undefined) {
+      if (me.role !== 'owner') throw httpError(403, 'Only the administrator can change the type of business');
+      newBusinessType = cleanBusinessType(businessType);
+      if (!newBusinessType) throw httpError(400, 'Choose the type of business');
+    }
+
+    if (newBusinessName) await Business.findByIdAndUpdate(me.business, { name: newBusinessName });
+    if (newBusinessType) await Business.findByIdAndUpdate(me.business, { businessType: newBusinessType });
+
     await me.save();
-    res.json({ user: sanitizeUser(me, await businessNameOf(me.business)) });
+    res.json({ user: sanitizeUser(me, await businessOf(me.business)) });
   } catch (err) {
     next(err);
   }
@@ -399,7 +424,7 @@ function uploadMine(field) {
       }
       if (!req.file) throw httpError(400, 'Choose a picture to upload');
       await savePicture(req.user, field, req.file);
-      res.status(201).json({ user: sanitizeUser(req.user, await businessNameOf(req.user.business)) });
+      res.status(201).json({ user: sanitizeUser(req.user, await businessOf(req.user.business)) });
     } catch (err) {
       next(err);
     }
@@ -412,7 +437,7 @@ function deleteMine(field) {
     try {
       if (req.user.role !== 'owner') throw httpError(403, lockedMessage(field));
       await clearPicture(req.user, field);
-      res.json({ user: sanitizeUser(req.user, await businessNameOf(req.user.business)) });
+      res.json({ user: sanitizeUser(req.user, await businessOf(req.user.business)) });
     } catch (err) {
       next(err);
     }

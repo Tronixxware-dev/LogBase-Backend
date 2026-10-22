@@ -27,13 +27,14 @@ async function assertSerialsNew(businessId, serials) {
 }
 
 // Documents for units received on one purchase line (not saved yet). Ids are made here so the caller can remove them again.
-function receivedUnitDocs({ businessId, line, serials, purchaseId, supplierName, date, cost }) {
+function receivedUnitDocs({ businessId, line, serials, purchaseId, supplierName, date, cost, shopId }) {
   return serials.map((serial) => ({
     _id: new mongoose.Types.ObjectId(),
     business: businessId,
     product: line.product._id,
     variant: line.variant ? line.variant._id : undefined,
     variantLabel: line.variantLabel || undefined,
+    shop: shopId || undefined,
     serial,
     status: 'in_stock',
     purchase: purchaseId,
@@ -47,7 +48,7 @@ function receivedUnitDocs({ businessId, line, serials, purchaseId, supplierName,
 // Takes the given serial numbers for a sale. Each one must be in stock under this product (and colour / size).
 // A number the shop has never recorded is accepted and recorded as sold (stock bought before serials were tracked).
 // Returns [{ id, created, prev }] for undoing.
-async function claimForSale({ businessId, product, variant, variantText, serials, saleId, saleGroup, customer, customerName, soldAt, soldBy, warrantyMonths, warrantyEndsAt, claimed }) {
+async function claimForSale({ businessId, product, variant, variantText, shopId, serials, saleId, saleGroup, customer, customerName, soldAt, soldBy, warrantyMonths, warrantyEndsAt, claimed }) {
   for (const serial of serials) {
     const sold = {
       status: 'sold',
@@ -61,7 +62,8 @@ async function claimForSale({ businessId, product, variant, variantText, serials
       warrantyEndsAt: warrantyEndsAt || undefined,
     };
     const event = { type: 'sold', at: soldAt, note: customerName || undefined, ref: saleId };
-    const filter = { business: businessId, serial, product: product._id, status: 'in_stock' };
+    // the unit must be in the store the sale is made from (units of the main store have no store id)
+    const filter = { business: businessId, serial, product: product._id, status: 'in_stock', shop: shopId || null };
     if (variant) filter.variant = variant._id;
 
     const prev = await SerialUnit.findOneAndUpdate(filter, { $set: sold, $push: { events: event } });
@@ -78,6 +80,7 @@ async function claimForSale({ businessId, product, variant, variantText, serials
           product: product._id,
           variant: variant ? variant._id : undefined,
           variantLabel: variantText || undefined,
+          shop: shopId || undefined,
           serial,
           ...sold,
           events: [event],
@@ -96,6 +99,9 @@ async function claimForSale({ businessId, product, variant, variantText, serials
       throw httpError(409, `${serial} was already sold on ${dayText(existing.soldAt)}${who}. If it came back, record the return first.`);
     }
     if (existing.status === 'written_off') throw httpError(409, `${serial} was written off and cannot be sold.`);
+    if (existing.status === 'in_stock' && String(existing.shop || '') !== String(shopId || '')) {
+      throw httpError(409, `${serial} is not in this store. It is in another store or on its way here: transfer it first.`);
+    }
     throw httpError(409, `${serial} was just taken by another sale. Try again.`);
   }
 }

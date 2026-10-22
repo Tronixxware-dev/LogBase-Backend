@@ -1,4 +1,5 @@
 const Sale = require('../models/Sale');
+const { putStock, incRow, applyShopFilter } = require('../utils/shopStock');
 const SaleReturn = require('../models/SaleReturn');
 const Product = require('../models/Product');
 const Customer = require('../models/Customer');
@@ -8,6 +9,7 @@ const { round2, splitReturn } = require('../utils/money');
 const { can } = require('../utils/permissions');
 const { returnForUser, returnsForUser, salesForUser } = require('../utils/staffView');
 const { logActivity } = require('../utils/audit');
+const { notifyOwners } = require('../utils/notifications');
 const { withSellerPhotos } = require('../utils/sellerPhotos');
 const { cleanSerialList } = require('../utils/serials');
 const { releaseForReturn, undoRelease } = require('../utils/serialUnits');
@@ -48,17 +50,10 @@ function unitCostOf(product, variantId) {
   return Number(product.costPrice) || 0;
 }
 
-// Puts returned units back on the shelf (atomic, on the product and on its colour / size).
+// Puts returned units back on the shelf (atomic, on the product and on its colour / size), in the store the sale was made from.
 // Returns false when the product or colour no longer exists, so nothing could be put back.
 async function putBack(businessId, line, qty) {
-  const filter = { _id: line.product, business: businessId };
-  const inc = { quantity: qty };
-  if (line.variant) {
-    filter['variants._id'] = line.variant;
-    inc['variants.$.quantity'] = qty;
-  }
-  const result = await Product.updateOne(filter, { $inc: inc });
-  return (result.matchedCount ?? result.n ?? 0) > 0;
+  return putStock({ businessId, productId: line.product, variantId: line.variant || null, qty, shopId: line.shop || null });
 }
 
 async function takeBack(businessId, line, qty) {
@@ -70,7 +65,11 @@ async function takeBack(businessId, line, qty) {
   } else {
     filter.quantity = { $gte: qty };
   }
-  await Product.updateOne(filter, { $inc: inc });
+  const result = await Product.updateOne(filter, { $inc: inc });
+  // the store's own count goes down again too
+  if ((result.matchedCount ?? result.n ?? 0) > 0 && line.shop) {
+    await incRow(businessId, line.product, line.variant || null, line.shop, -qty, { upsert: false });
+  }
 }
 
 // POST /api/returns
@@ -113,6 +112,12 @@ async function createReturn(req, res, next) {
     if (!seesAllSales(req)) filter.recordedBy = req.user._id;
     const lines = await Sale.find(filter);
     if (lines.length !== wanted.size) throw httpError(404, 'Sale not found');
+
+    // An item swap was paid partly with the customer's old item, so the money that went in is not all cash.
+    // Taking the new item back is sorted out directly with the customer, not through this form.
+    if (lines.some((l) => l.tradeIn && l.tradeIn.description)) {
+      throw httpError(400, "This sale was an item swap, so the customer's old item was part of the payment. A swap cannot be returned here.");
+    }
 
     // one customer per return (a sale group always has one)
     const customerIds = new Set(lines.map((l) => (l.customer ? String(l.customer) : '')));
@@ -296,6 +301,13 @@ async function createReturn(req, res, next) {
       entityId: ret._id,
       meta: { totalValue, refundAmount, refundMethod, owedReduction, reason, restock },
     });
+    if (req.user.role !== 'owner' && !req.approvedBy) {
+      notifyOwners(
+        req.businessId,
+        { type: 'returns', title: `${req.user.name} took back ${units === 1 ? 'an item' : `${units} items`}`, body: `${what}${forName} (worth ${money(totalValue)}).${refundText}`.trim(), link: `/dashboard/returns` },
+        { exceptUserId: req.user._id }
+      );
+    }
 
     res.status(201).json({
       return: returnForUser(req, ret),
@@ -323,6 +335,13 @@ async function listReturns(req, res, next) {
     if (!seesAllSales(req)) filter.processedBy = req.user._id;
     if (req.query.sale) filter.sales = String(req.query.sale);
     if (req.query.customer) filter.customer = String(req.query.customer);
+    // ?shop=<store id> (or "main"): the returns of sales made from that store (a return carries its sales, the sale carries the store)
+    const saleScope = { business: req.businessId };
+    await applyShopFilter(req, saleScope);
+    if (saleScope.shop !== undefined) {
+      const ids = await Sale.find(saleScope).distinct('_id');
+      filter.sales = filter.sales ? { $in: ids.filter((id) => String(id) === String(filter.sales)) } : { $in: ids };
+    }
 
     const returns = await SaleReturn.find(filter).sort({ date: -1, createdAt: -1 }).limit(500);
     res.json({ returns: returnsForUser(req, returns) });

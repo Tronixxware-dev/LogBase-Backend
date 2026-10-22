@@ -4,11 +4,13 @@ const Sale = require('../models/Sale');
 const SaleReturn = require('../models/SaleReturn');
 const { round2 } = require('../utils/money');
 const { logActivity } = require('../utils/audit');
+const { notifyOwners } = require('../utils/notifications');
 const { withSellerPhotos } = require('../utils/sellerPhotos');
 const { httpError } = require('../utils/httpError');
 const { normalizePhone, phoneKey } = require('../utils/phone');
 const { customerForUser, customersForUser } = require('../utils/staffView');
 const { can } = require('../utils/permissions');
+const { applyWorkingShop, shopForNewRecord } = require('../utils/shopStock');
 
 const EDITABLE_FIELDS = ['name', 'phone', 'email', 'address', 'notes'];
 
@@ -23,11 +25,11 @@ function pickCustomerFields(body) {
   return data;
 }
 
-// One phone number belongs to one customer in a business.
-async function assertPhoneIsFree(businessId, phone, ignoreId) {
+// One phone number belongs to one customer in a store (each store keeps its own customers).
+async function assertPhoneIsFree(businessId, phone, ignoreId, shopId) {
   if (!phone) return;
   const key = phoneKey(phone);
-  const others = await Customer.find({ business: businessId, phone: { $exists: true, $ne: '' } }).select('name phone');
+  const others = await Customer.find({ business: businessId, shop: shopId || null, phone: { $exists: true, $ne: '' } }).select('name phone');
   const clash = others.find((b) => String(b._id) !== String(ignoreId) && phoneKey(b.phone) === key);
   if (clash) throw httpError(409, `${clash.name} is already saved with this phone number.`);
 }
@@ -36,6 +38,8 @@ async function listCustomers(req, res, next) {
   try {
     const { search } = req.query;
     const filter = { business: req.businessId };
+    // the customers of the store being worked in
+    await applyWorkingShop(req, filter);
     if (search) filter.name = { $regex: search, $options: 'i' };
 
     const customers = await Customer.find(filter).sort({ name: 1 });
@@ -71,9 +75,10 @@ async function createCustomer(req, res, next) {
   try {
     const data = pickCustomerFields(req.body);
     if (!data.name || !String(data.name).trim()) throw httpError(400, 'Customer name is required');
-    await assertPhoneIsFree(req.businessId, data.phone);
+    const shop = await shopForNewRecord(req);
+    await assertPhoneIsFree(req.businessId, data.phone, undefined, shop);
 
-    const customer = await Customer.create({ ...data, business: req.businessId });
+    const customer = await Customer.create({ ...data, business: req.businessId, shop });
     logActivity(req, {
       action: 'customer.create',
       summary: `Added customer ${customer.name}`,
@@ -89,7 +94,8 @@ async function createCustomer(req, res, next) {
 async function updateCustomer(req, res, next) {
   try {
     const data = pickCustomerFields(req.body);
-    await assertPhoneIsFree(req.businessId, data.phone, req.params.id);
+    const current = await Customer.findOne({ _id: req.params.id, business: req.businessId }).select('shop');
+    await assertPhoneIsFree(req.businessId, data.phone, req.params.id, current && current.shop);
 
     const customer = await Customer.findOneAndUpdate({ _id: req.params.id, business: req.businessId }, data, {
       new: true,
@@ -135,6 +141,11 @@ async function recordPayment(req, res, next) {
       entityId: customer._id,
       meta: { amount: Number(amount) },
     });
+    notifyOwners(
+      req.businessId,
+      { type: 'customerPayment', title: `${req.user.name} recorded a payment`, body: `${money(amount)} from ${customer.name}.`, link: `/dashboard/customers/${customer._id}` },
+      { exceptUserId: req.user._id }
+    );
 
     res.status(201).json({ payment, customer });
   } catch (err) {

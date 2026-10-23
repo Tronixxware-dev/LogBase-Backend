@@ -12,7 +12,7 @@ const { checkPassword } = require('../utils/passwordPolicy');
 const { isSuperAdminEmail } = require('../utils/superAdmin');
 const { DEFAULT_BUSINESS_TYPE, cleanBusinessType } = require('../utils/businessTypes');
 const { settingsOf } = require('../utils/settings');
-const { referrerForCode, attachReferral } = require('../utils/referrals');
+const { referrerForCode, attachReferral, linkForUser } = require('../utils/referrals');
 const Referrer = require('../models/Referrer');
 const { loginGuard, changePasswordGuard, clientIp, lockedMessage: tooManyAttempts } = require('../utils/rateLimit');
 const {
@@ -291,7 +291,7 @@ async function getMe(req, res, next) {
   try {
     const user = sanitizeUser(req.user, await businessOf(req.user.business));
     // the admin linked this account to a referral code: the menu then shows Referrals
-    user.isReferrer = Boolean(await Referrer.exists({ user: req.user._id }));
+    user.isReferrer = Boolean(await Referrer.exists({ user: req.user._id })) || (await linkForUser(req.user).catch(() => false));
     res.json({ user });
   } catch (err) {
     next(err);

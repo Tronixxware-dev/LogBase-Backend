@@ -16,6 +16,8 @@ const referrerSchema = new mongoose.Schema(
     isActive: { type: Boolean, default: true },
     // the LogBase account this referrer signs in with to see their own numbers (the admin links it; optional)
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
+    // set when the admin unlinks the login on purpose: it is then never linked again on its own (by email)
+    noAutoLink: { type: Boolean, default: false },
     notes: { type: String, trim: true, maxlength: 300 },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   },

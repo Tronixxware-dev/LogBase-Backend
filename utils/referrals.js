@@ -10,6 +10,7 @@ const Referral = require('../models/Referral');
 const ReferralCommission = require('../models/ReferralCommission');
 const BillingPayment = require('../models/BillingPayment');
 const Business = require('../models/Business');
+const User = require('../models/User');
 const crypto = require('crypto');
 
 const DEFAULT_RATE = 50;
@@ -102,4 +103,33 @@ async function syncCommissions(referrerId) {
   return added;
 }
 
-module.exports = { DEFAULT_RATE, normalizeCode, freshCode, referrerForCode, attachReferral, recordCommission, syncCommissions };
+// Links a referrer to a LogBase login (so the person sees Referrals in their own menu). One login belongs to one
+// referrer and a referrer has one login; returns true when the link was made.
+async function linkReferrerToUser(referrerId, userId) {
+  if (await Referrer.exists({ user: userId })) return false;
+  const result = await Referrer.updateOne({ _id: referrerId, $or: [{ user: null }, { user: { $exists: false } }] }, { $set: { user: userId } });
+  return (result.matchedCount ?? result.n ?? 0) > 0;
+}
+
+// A referrer who has an email and no login linked yet: link the account that uses that email.
+// `passive` is for links nobody asked for in that moment (opening the list): then only an account that already existed when
+// the code was made counts, because the admin typed that address knowing the account. An account made afterwards with the
+// same address has not been vouched for by anyone and is not linked on its own.
+async function autoLinkByEmail(referrer, { passive = false } = {}) {
+  if (!referrer || referrer.user || referrer.noAutoLink || !referrer.email) return false;
+  const user = await User.findOne({ email: referrer.email }).select('_id createdAt').lean();
+  if (!user) return false;
+  if (passive && new Date(user.createdAt) > new Date(referrer.createdAt)) return false;
+  return linkReferrerToUser(referrer._id, user._id);
+}
+
+// The other way round, when a person opens the app: a code made for their email, for an account that already existed then.
+async function linkForUser(user) {
+  if (!user || !user.email) return false;
+  const referrer = await Referrer.findOne({ email: String(user.email).toLowerCase(), $or: [{ user: null }, { user: { $exists: false } }], noAutoLink: { $ne: true }, createdAt: { $gte: user.createdAt } })
+    .select('_id')
+    .lean();
+  return referrer ? linkReferrerToUser(referrer._id, user._id) : false;
+}
+
+module.exports = { linkReferrerToUser, autoLinkByEmail, linkForUser, DEFAULT_RATE, normalizeCode, freshCode, referrerForCode, attachReferral, recordCommission, syncCommissions };

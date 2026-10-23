@@ -15,7 +15,7 @@ const Business = require('../models/Business');
 const User = require('../models/User');
 const AdminLog = require('../models/AdminLog');
 const { httpError } = require('../utils/httpError');
-const { DEFAULT_RATE, normalizeCode, freshCode, syncCommissions } = require('../utils/referrals');
+const { DEFAULT_RATE, normalizeCode, freshCode, syncCommissions, autoLinkByEmail } = require('../utils/referrals');
 const { PLANS } = require('../config/plans');
 
 const naira = (kobo) => Math.round(Number(kobo) || 0) / 100;
@@ -115,6 +115,14 @@ async function listReferrers(req, res, next) {
       filter.$or = [{ name: rx }, { code: rx }, { phone: rx }, { email: rx }];
     }
     const rows = await Referrer.find(filter).sort({ createdAt: -1 }).lean();
+    // a code made for an email that already had an account (before this was possible) gets its login linked here
+    for (const row of rows) {
+      // eslint-disable-next-line no-await-in-loop
+      if (!row.user && row.email && (await autoLinkByEmail(row, { passive: true }).catch(() => false))) {
+        const fresh = await Referrer.findById(row._id).select('user').lean();
+        row.user = fresh && fresh.user;
+      }
+    }
     const totals = await totalsFor(rows.map((r) => r._id));
     const items = rows.map((r) => present(r, totals.get(String(r._id))));
     const summary = items.reduce(
@@ -154,8 +162,11 @@ async function createReferrer(req, res, next) {
       notes: text(req.body.notes, 300) || undefined,
       createdBy: req.user._id,
     });
+    // typed for someone who already has an account: link it (the admin knows this address)
+    if (!linked && email) await autoLinkByEmail(referrer.toObject()).catch((e) => console.error('AUTOLINK', e.message));
+    const made = (await Referrer.findById(referrer._id).lean()) || referrer.toObject();
     await logAdmin(req, { action: 'referral.create', summary: `Made referral code ${code} for ${name} (${referrer.ratePercent}% of each payment)`, meta: { code } });
-    res.status(201).json({ referrer: present(referrer.toObject(), { referred: 0, paying: 0, earned: 0, owed: 0, paid: 0, payments: 0 }) });
+    res.status(201).json({ referrer: present(made, { referred: 0, paying: 0, earned: 0, owed: 0, paid: 0, payments: 0 }) });
   } catch (err) {
     if (err && err.code === 11000) return next(httpError(409, 'That code is already used. Try again.'));
     next(err);
@@ -251,10 +262,13 @@ async function updateReferrer(req, res, next) {
     if (b.userId !== undefined) {
       const linked = await readLinkedUser(b.userId, req.params.id);
       set.user = linked ? linked._id : null;
+      set.noAutoLink = !linked; // unlinking on purpose sticks
       linkChange = linked ? `linked to the LogBase account of ${linked.email}` : 'unlinked from its LogBase account';
     }
     const referrer = await Referrer.findByIdAndUpdate(req.params.id, { $set: set }, { new: true });
     if (!referrer) throw httpError(404, 'Referrer not found');
+    // a changed email may belong to an existing account: link it
+    if (b.email !== undefined && b.userId === undefined && !referrer.user && referrer.email) await autoLinkByEmail(referrer.toObject()).catch((e) => console.error('AUTOLINK', e.message));
     const summary =
       linkChange && Object.keys(b).length === 1
         ? `Referral code ${referrer.code} (${referrer.name}) ${linkChange}`

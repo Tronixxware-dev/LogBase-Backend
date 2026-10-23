@@ -1,8 +1,8 @@
 const mongoose = require('mongoose');
 
 // Someone the LogBase super admin gave a referral code to. They earn a share of every plan payment made by the
-// businesses that sign up with their code. They do not need a LogBase login: the admin tracks what they earned and
-// marks it paid when the money has been sent to them.
+// businesses that sign up with their code. The admin tracks what they earned and marks it paid when the money has been sent to them.
+// A referrer who has a LogBase account can be linked to it (`user`) and then sees their own code, referrals and earnings there.
 const referrerSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true, maxlength: 80 },
@@ -14,6 +14,8 @@ const referrerSchema = new mongoose.Schema(
     // later never changes what was already earned.
     ratePercent: { type: Number, default: 50, min: 1, max: 100 },
     isActive: { type: Boolean, default: true },
+    // the LogBase account this referrer signs in with to see their own numbers (the admin links it; optional)
+    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
     notes: { type: String, trim: true, maxlength: 300 },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   },

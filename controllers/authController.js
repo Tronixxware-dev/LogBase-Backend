@@ -13,6 +13,7 @@ const { isSuperAdminEmail } = require('../utils/superAdmin');
 const { DEFAULT_BUSINESS_TYPE, cleanBusinessType } = require('../utils/businessTypes');
 const { settingsOf } = require('../utils/settings');
 const { referrerForCode, attachReferral } = require('../utils/referrals');
+const Referrer = require('../models/Referrer');
 const { loginGuard, changePasswordGuard, clientIp, lockedMessage: tooManyAttempts } = require('../utils/rateLimit');
 const {
   permissionsOf,
@@ -288,7 +289,10 @@ async function login(req, res, next) {
 
 async function getMe(req, res, next) {
   try {
-    res.json({ user: sanitizeUser(req.user, await businessOf(req.user.business)) });
+    const user = sanitizeUser(req.user, await businessOf(req.user.business));
+    // the admin linked this account to a referral code: the menu then shows Referrals
+    user.isReferrer = Boolean(await Referrer.exists({ user: req.user._id }));
+    res.json({ user });
   } catch (err) {
     next(err);
   }

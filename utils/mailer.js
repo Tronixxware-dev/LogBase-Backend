@@ -68,6 +68,46 @@ function resetPasswordEmail({ name, link, minutes }) {
   return { subject: 'Reset your LogBase password', html, text };
 }
 
+// Sent to the NEW address: the link that confirms it as the login email
+function confirmEmailEmail({ name, newEmail, link, minutes }) {
+  const hello = name ? `Hi ${name},` : 'Hi,';
+  const text = `${hello}\n\nSomeone (hopefully you) asked to use ${newEmail} as the login email of a LogBase account.\nOpen this link to confirm it (it works once and expires in ${minutes} minutes):\n\n${link}\n\nIf you did not ask for this, ignore this email: nothing changes.\n`;
+  const html = layout(
+    'Confirm your new email',
+    `<p style="margin:0 0 12px;font-size:14px;line-height:1.5">${escapeHtml(hello)}</p>
+<p style="margin:0 0 20px;font-size:14px;line-height:1.5">Someone (hopefully you) asked to use <strong>${escapeHtml(newEmail)}</strong> as the login email of a LogBase account. The link works once and expires in ${minutes} minutes.</p>
+<p style="margin:0 0 20px"><a href="${escapeHtml(link)}" style="display:inline-block;background:#0d9488;color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;padding:11px 20px;border-radius:8px">Confirm this email</a></p>
+<p style="margin:0 0 8px;font-size:12px;color:#6b7280;line-height:1.5">Or copy this address into your browser:<br><span style="word-break:break-all">${escapeHtml(link)}</span></p>
+<p style="margin:16px 0 0;font-size:12px;color:#6b7280;line-height:1.5">If you did not ask for this, ignore this email: nothing changes.</p>`
+  );
+  return { subject: 'Confirm your new LogBase email', html, text };
+}
+
+// Sent to the OLD address when a change was asked for, so a stolen session cannot do it unnoticed
+function emailChangeRequestedEmail({ name, newEmail }) {
+  const hello = name ? `Hi ${name},` : 'Hi,';
+  const text = `${hello}\n\nA change of the login email of your LogBase account to ${newEmail} was just asked for. It only happens if the owner of that address confirms it.\nIf this was you, there is nothing to do. If it was not, change your password right away.\n`;
+  const html = layout(
+    'A new login email was asked for',
+    `<p style="margin:0 0 12px;font-size:14px;line-height:1.5">${escapeHtml(hello)}</p>
+<p style="margin:0;font-size:14px;line-height:1.5">A change of the login email of your LogBase account to <strong>${escapeHtml(newEmail)}</strong> was just asked for. It only happens if the owner of that address confirms it. If this was you, there is nothing to do. If it was not, change your password right away.</p>`
+  );
+  return { subject: 'A new login email was asked for on your LogBase account', html, text };
+}
+
+// Sent to the old and the new address once the login email has changed
+function emailChangedEmail({ name, oldEmail, newEmail }) {
+  const hello = name ? `Hi ${name},` : 'Hi,';
+  const text = `${hello}\n\nThe login email of this LogBase account was changed from ${oldEmail} to ${newEmail}. Log in with ${newEmail} from now on (your password is the same).\nIf this was not you, contact tronixxware01@gmail.com right away.\n`;
+  const html = layout(
+    'Your login email was changed',
+    `<p style="margin:0 0 12px;font-size:14px;line-height:1.5">${escapeHtml(hello)}</p>
+<p style="margin:0 0 12px;font-size:14px;line-height:1.5">The login email of this LogBase account was changed from <strong>${escapeHtml(oldEmail)}</strong> to <strong>${escapeHtml(newEmail)}</strong>. Log in with <strong>${escapeHtml(newEmail)}</strong> from now on (your password is the same).</p>
+<p style="margin:0;font-size:12px;color:#6b7280;line-height:1.5">If this was not you, contact tronixxware01@gmail.com right away.</p>`
+  );
+  return { subject: 'Your LogBase login email was changed', html, text };
+}
+
 // Sent once, right after a business signs up
 function welcomeEmail({ name, businessName, trialDays, link }) {
   const hello = name ? `Hi ${name},` : 'Hi,';
@@ -154,4 +194,4 @@ function renewalFailedEmail({ name, planName, amount, reason, willRetry, link })
   return { subject: willRetry ? 'Your LogBase plan could not be renewed' : 'Automatic renewal is off: please renew your plan', html, text };
 }
 
-module.exports = { isConfigured, sendEmail, welcomeEmail, resetPasswordEmail, passwordChangedEmail, announcementEmail, renewalSucceededEmail, renewalFailedEmail, escapeHtml };
+module.exports = { isConfigured, sendEmail, welcomeEmail, resetPasswordEmail, passwordChangedEmail, confirmEmailEmail, emailChangeRequestedEmail, emailChangedEmail, announcementEmail, renewalSucceededEmail, renewalFailedEmail, escapeHtml };

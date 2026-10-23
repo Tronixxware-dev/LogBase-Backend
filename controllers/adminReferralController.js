@@ -40,6 +40,18 @@ function readRate(value) {
   return rate;
 }
 
+// The LogBase account to link a referrer to: it must exist, and belong to one referrer only.
+async function readLinkedUser(value, exceptReferrerId) {
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return null;
+  if (!mongoose.isValidObjectId(value)) throw httpError(400, 'That LogBase account was not found');
+  const user = await User.findById(value).select('name email business').lean();
+  if (!user) throw httpError(400, 'That LogBase account was not found');
+  const taken = await Referrer.findOne({ user: user._id, ...(exceptReferrerId ? { _id: { $ne: exceptReferrerId } } : {}) }).select('name code').lean();
+  if (taken) throw httpError(409, `That account is already linked to ${taken.name} (code ${taken.code}).`);
+  return user;
+}
+
 function readEmail(value) {
   const email = text(value, 120).toLowerCase();
   if (email && !/^\S+@\S+\.\S+$/.test(email)) throw httpError(400, 'Enter a valid email address, or leave it empty');
@@ -86,6 +98,7 @@ function present(r, t) {
     code: r.code,
     ratePercent: r.ratePercent,
     isActive: r.isActive,
+    linked: Boolean(r.user),
     notes: r.notes || '',
     createdAt: r.createdAt,
     ...t,
@@ -130,7 +143,9 @@ async function createReferrer(req, res, next) {
     } else {
       code = await freshCode();
     }
+    const linked = await readLinkedUser(req.body.userId);
     const referrer = await Referrer.create({
+      user: linked ? linked._id : undefined,
       name,
       phone: text(req.body.phone, 30) || undefined,
       email: email || undefined,
@@ -163,8 +178,18 @@ async function detail(referrerId) {
   const earnedBy = new Map();
   commissions.forEach((c) => earnedBy.set(String(c.business), (earnedBy.get(String(c.business)) || 0) + c.amount));
 
+  // the LogBase account this referrer signs in with, if one is linked
+  let account = null;
+  if (referrer.user) {
+    const u = await User.findById(referrer.user).select('name email business').lean();
+    if (u) {
+      const shop = await Business.findById(u.business).select('name').lean();
+      account = { _id: u._id, name: u.name, email: u.email, businessName: shop ? shop.name : '' };
+    }
+  }
+
   return {
-    referrer: present(referrer, totals.get(String(referrer._id))),
+    referrer: { ...present(referrer, totals.get(String(referrer._id))), account },
     referred: referrals
       .filter((r) => r.business)
       .map((r) => {
@@ -222,10 +247,18 @@ async function updateReferrer(req, res, next) {
     if (b.notes !== undefined) set.notes = text(b.notes, 300);
     if (b.ratePercent !== undefined) set.ratePercent = readRate(b.ratePercent) ?? DEFAULT_RATE;
     if (b.isActive !== undefined) set.isActive = Boolean(b.isActive);
+    let linkChange = null;
+    if (b.userId !== undefined) {
+      const linked = await readLinkedUser(b.userId, req.params.id);
+      set.user = linked ? linked._id : null;
+      linkChange = linked ? `linked to the LogBase account of ${linked.email}` : 'unlinked from its LogBase account';
+    }
     const referrer = await Referrer.findByIdAndUpdate(req.params.id, { $set: set }, { new: true });
     if (!referrer) throw httpError(404, 'Referrer not found');
     const summary =
-      b.isActive !== undefined
+      linkChange && Object.keys(b).length === 1
+        ? `Referral code ${referrer.code} (${referrer.name}) ${linkChange}`
+        : b.isActive !== undefined
         ? `${referrer.isActive ? 'Switched on' : 'Switched off'} referral code ${referrer.code} (${referrer.name})`
         : `Changed the details of referral code ${referrer.code} (${referrer.name})`;
     await logAdmin(req, { action: 'referral.update', summary, meta: { code: referrer.code, ...set } });
@@ -290,8 +323,9 @@ async function listPeople(req, res, next) {
     const shops = await Business.find({ _id: { $in: users.map((u) => u.business) } }).select('name phone').lean();
     const shopById = new Map(shops.map((b) => [String(b._id), b]));
     const emails = users.map((u) => String(u.email || '').toLowerCase()).filter(Boolean);
-    const existing = emails.length ? await Referrer.find({ email: { $in: emails } }).select('email code').lean() : [];
-    const codeByEmail = new Map(existing.map((r) => [r.email, r.code]));
+    const existing = await Referrer.find({ $or: [{ email: { $in: emails } }, { user: { $in: users.map((u) => u._id) } }] }).select('email code user').lean();
+    const codeByEmail = new Map(existing.filter((r) => r.email).map((r) => [r.email, r.code]));
+    const codeByUser = new Map(existing.filter((r) => r.user).map((r) => [String(r.user), r.code]));
     res.json({
       items: users.map((u) => {
         const shop = shopById.get(String(u.business));
@@ -303,7 +337,7 @@ async function listPeople(req, res, next) {
           phone: u.phone || (shop && shop.phone) || '',
           role: u.role,
           businessName: shop ? shop.name : '',
-          existingCode: codeByEmail.get(email) || '',
+          existingCode: codeByUser.get(String(u._id)) || codeByEmail.get(email) || '',
         };
       }),
     });
@@ -312,4 +346,4 @@ async function listPeople(req, res, next) {
   }
 }
 
-module.exports = { listPeople, listReferrers, createReferrer, getReferrer, updateReferrer, payReferrer };
+module.exports = { detail, listPeople, listReferrers, createReferrer, getReferrer, updateReferrer, payReferrer };

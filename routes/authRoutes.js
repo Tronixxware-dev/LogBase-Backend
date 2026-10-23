@@ -20,6 +20,7 @@ const {
   listTeam,
 } = require('../controllers/authController');
 const { forgotPassword, resetPassword } = require('../controllers/passwordResetController');
+const { requestEmailChange, confirmEmailChange } = require('../controllers/emailChangeController');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { avatarUpload, coverUpload } = require('../config/cloudinary');
 const { rateLimit } = require('../utils/rateLimit');
@@ -36,6 +37,9 @@ router.post('/reset-password', rateLimit({ windowMs: 15 * 60 * 1000, max: 20 }),
 router.get('/me', requireAuth, getMe);
 router.patch('/me', requireAuth, updateMe);
 router.post('/change-password', requireAuth, changePassword);
+// Changing the login email: asked from the profile (password + a link to the new address), finished by opening that link
+router.post('/me/email', requireAuth, rateLimit({ windowMs: 15 * 60 * 1000, max: 10 }), requestEmailChange);
+router.post('/confirm-email', rateLimit({ windowMs: 15 * 60 * 1000, max: 20 }), confirmEmailChange);
 
 // Your own profile photo and cover picture. A staff can add each one once; after that only the administrator can
 // change or remove it. The lock check comes BEFORE the upload, so a locked staff never sends a file to Cloudinary.

@@ -30,6 +30,11 @@ const userSchema = new mongoose.Schema(
     resetTokenHash: { type: String },
     resetTokenExpires: { type: Date },
     resetRequestedAt: { type: Date }, // when the last reset email was sent (limits how often one can be asked for)
+    // Changing the login email: the new address is only used once its owner opens the emailed link (only a fingerprint of the token is kept)
+    pendingEmail: { type: String, lowercase: true, trim: true },
+    pendingEmailHash: { type: String },
+    pendingEmailExpires: { type: Date },
+    pendingEmailRequestedAt: { type: Date },
     // Logins created before this moment stop working (set when the password is reset by email)
     passwordChangedAt: { type: Date },
   },

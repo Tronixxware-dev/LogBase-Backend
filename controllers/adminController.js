@@ -22,6 +22,7 @@ const mailer = require('../utils/mailer');
 const { httpError } = require('../utils/httpError');
 const { hashToken, TOKEN_MINUTES } = require('./passwordResetController');
 const { isSuperAdminEmail } = require('../utils/superAdmin');
+const { cleanEmail, assertCanUseEmail, applyEmailChange } = require('../utils/emailChange');
 const { addDays, entitlementsFor, getSubscription } = require('../utils/billing');
 const { PLANS, PAID_PLANS, INTERVALS, TRIAL_PLAN, TRIAL_DAYS, priceOf } = require('../config/plans');
 
@@ -651,6 +652,29 @@ async function setUserActive(req, res, next) {
   }
 }
 
+// POST /api/admin/users/:id/email   body: { email }
+// Changes the email a person logs in with, straight away (the admin vouches for it: use it when the old mailbox is lost).
+// Their logins stop working, so they log in again with the new email and the same password.
+async function changeUserEmail(req, res, next) {
+  try {
+    checkId(req.params.id, 'user id');
+    const user = await User.findById(req.params.id);
+    if (!user) throw httpError(404, 'User not found');
+    const email = cleanEmail(req.body && req.body.email);
+    await assertCanUseEmail(user, email);
+    const oldEmail = await applyEmailChange(user, email);
+    if (mailer.isConfigured()) {
+      const message = mailer.emailChangedEmail({ name: user.name, oldEmail, newEmail: email });
+      [oldEmail, email].forEach((to) => mailer.sendEmail({ to, ...message }).catch((err) => console.error('Email-changed notice failed:', err.message)));
+    }
+    const business = await Business.findById(user.business).select('name').lean();
+    await logAdmin(req, { action: 'user.email', summary: `Changed ${user.name}'s login email from ${oldEmail} to ${email}`, business });
+    res.json({ message: `The login email is now ${email}`, detail: await businessDetail(user.business) });
+  } catch (err) {
+    next(err);
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* Payments                                                           */
 /* ------------------------------------------------------------------ */
@@ -839,6 +863,7 @@ module.exports = {
   endPlan,
   sendReset,
   setUserActive,
+  changeUserEmail,
   listPayments,
   listActivity,
   listAdminLog,

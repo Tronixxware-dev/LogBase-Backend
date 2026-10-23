@@ -26,6 +26,7 @@ const expenseRoutes = require('./routes/expenseRoutes');
 const importRoutes = require('./routes/importRoutes');
 const serialRoutes = require('./routes/serialRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+const referralRoutes = require('./routes/referralRoutes');
 const swapRoutes = require('./routes/swapRoutes');
 const repairRoutes = require('./routes/repairRoutes');
 const laundryRoutes = require('./routes/laundryRoutes');
@@ -84,6 +85,7 @@ app.use('/api/billing', billingRoutes);
 app.use('/api/expenses', expenseRoutes);
 app.use('/api/import', importRoutes);
 app.use('/api/serials', serialRoutes);
+app.use('/api/referral', referralRoutes); // a referrer's own code, referrals and earnings
 app.use('/api/admin', adminRoutes); // the LogBase super-admin panel (SUPER_ADMIN_EMAILS only)
 
 app.use(notFound);

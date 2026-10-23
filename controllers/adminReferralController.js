@@ -12,6 +12,7 @@ const ReferralCommission = require('../models/ReferralCommission');
 const ReferralPayout = require('../models/ReferralPayout');
 const Subscription = require('../models/Subscription');
 const Business = require('../models/Business');
+const User = require('../models/User');
 const AdminLog = require('../models/AdminLog');
 const { httpError } = require('../utils/httpError');
 const { DEFAULT_RATE, normalizeCode, freshCode, syncCommissions } = require('../utils/referrals');
@@ -274,4 +275,41 @@ async function payReferrer(req, res, next) {
   }
 }
 
-module.exports = { listReferrers, createReferrer, getReferrer, updateReferrer, payReferrer };
+// People who already have a LogBase account, so the admin can pick a referrer instead of typing them in.
+// Matches the person's name, email or phone, or the name of their business. With nothing typed, the newest sign-ups come first.
+async function listPeople(req, res, next) {
+  try {
+    const search = text(req.query.search, 80);
+    const filter = {};
+    if (search) {
+      const rx = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      const shops = await Business.find({ name: rx }).select('_id').limit(50).lean();
+      filter.$or = [{ name: rx }, { email: rx }, { phone: rx }, { business: { $in: shops.map((b) => b._id) } }];
+    }
+    const users = await User.find(filter).sort({ createdAt: -1 }).limit(8).select('name email phone role business').lean();
+    const shops = await Business.find({ _id: { $in: users.map((u) => u.business) } }).select('name phone').lean();
+    const shopById = new Map(shops.map((b) => [String(b._id), b]));
+    const emails = users.map((u) => String(u.email || '').toLowerCase()).filter(Boolean);
+    const existing = emails.length ? await Referrer.find({ email: { $in: emails } }).select('email code').lean() : [];
+    const codeByEmail = new Map(existing.map((r) => [r.email, r.code]));
+    res.json({
+      items: users.map((u) => {
+        const shop = shopById.get(String(u.business));
+        const email = String(u.email || '').toLowerCase();
+        return {
+          _id: u._id,
+          name: u.name,
+          email,
+          phone: u.phone || (shop && shop.phone) || '',
+          role: u.role,
+          businessName: shop ? shop.name : '',
+          existingCode: codeByEmail.get(email) || '',
+        };
+      }),
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { listPeople, listReferrers, createReferrer, getReferrer, updateReferrer, payReferrer };

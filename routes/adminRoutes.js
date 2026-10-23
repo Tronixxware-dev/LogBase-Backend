@@ -25,6 +25,7 @@ router.patch('/users/:id', admin.setUserActive);
 
 router.get('/referrers', referrals.listReferrers);
 router.post('/referrers', referrals.createReferrer);
+router.get('/referrers/people', referrals.listPeople);
 router.get('/referrers/:id', referrals.getReferrer);
 router.patch('/referrers/:id', referrals.updateReferrer);
 router.post('/referrers/:id/payout', referrals.payReferrer);

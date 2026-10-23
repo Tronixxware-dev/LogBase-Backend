@@ -6,6 +6,7 @@ const BillingPayment = require('../models/BillingPayment');
 const Product = require('../models/Product');
 const User = require('../models/User');
 const paystack = require('./paystack');
+const { recordCommission } = require('./referrals');
 const { httpError } = require('./httpError');
 const { PLANS, PLAN_ORDER, TRIAL_PLAN, TRIAL_DAYS } = require('../config/plans');
 
@@ -242,6 +243,8 @@ async function settlePayment(reference, now = new Date()) {
   try {
     const subscription = await applyPayment(claimed, now);
     const cardState = await rememberCard(claimed, tx).catch(() => null); // a card that could not be saved never undoes a payment
+    // the referrer of this business (if any) earns their share; this can never undo the payment either
+    await recordCommission(claimed).catch((err) => console.error('Referral commission failed:', err.message));
     return { payment: claimed, subscription, applied: true, outcome: 'success', autoRenew: cardState };
   } catch (err) {
     // the plan time was not added, so the payment must not stay marked as done: the next verify / webhook retries it

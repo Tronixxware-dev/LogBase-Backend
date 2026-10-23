@@ -2,6 +2,7 @@ const express = require('express');
 const { requireAuth, requireSuperAdmin } = require('../middleware/auth');
 const admin = require('../controllers/adminController');
 const adminSalesStock = require('../controllers/adminSalesStockController');
+const referrals = require('../controllers/adminReferralController');
 
 const router = express.Router();
 
@@ -21,6 +22,12 @@ router.post('/businesses/:id/end-plan', admin.endPlan);
 
 router.post('/users/:id/send-reset', admin.sendReset);
 router.patch('/users/:id', admin.setUserActive);
+
+router.get('/referrers', referrals.listReferrers);
+router.post('/referrers', referrals.createReferrer);
+router.get('/referrers/:id', referrals.getReferrer);
+router.patch('/referrers/:id', referrals.updateReferrer);
+router.post('/referrers/:id/payout', referrals.payReferrer);
 
 router.get('/payments', admin.listPayments);
 router.get('/activity', admin.listActivity);

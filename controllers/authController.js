@@ -12,6 +12,7 @@ const { checkPassword } = require('../utils/passwordPolicy');
 const { isSuperAdminEmail } = require('../utils/superAdmin');
 const { DEFAULT_BUSINESS_TYPE, cleanBusinessType } = require('../utils/businessTypes');
 const { settingsOf } = require('../utils/settings');
+const { referrerForCode, attachReferral } = require('../utils/referrals');
 const { loginGuard, changePasswordGuard, clientIp, lockedMessage: tooManyAttempts } = require('../utils/rateLimit');
 const {
   permissionsOf,
@@ -77,7 +78,17 @@ async function registerBusiness(req, res, next) {
       return res.status(409).json({ message: 'A business with that email already exists' });
     }
 
+    // an optional referral code: checked before anything is created, so a typing mistake is caught right away
+    let referrer = null;
+    if (typeof req.body.referralCode === 'string' && req.body.referralCode.trim()) {
+      referrer = await referrerForCode(req.body.referralCode);
+      if (!referrer) return res.status(400).json({ message: 'That referral code is not valid. Check it, or leave it empty.' });
+      const mine = [String(ownerEmail).toLowerCase().trim(), String(businessEmail).toLowerCase().trim()];
+      if (referrer.email && mine.includes(referrer.email)) return res.status(400).json({ message: 'You cannot use your own referral code.' });
+    }
+
     const business = await Business.create({ name: businessName, email: businessEmail, businessType });
+    if (referrer) await attachReferral(business._id, referrer);
 
     const passwordHash = await bcrypt.hash(password, 10);
     const owner = await User.create({

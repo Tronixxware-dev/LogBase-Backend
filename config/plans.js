@@ -9,7 +9,7 @@ const PLANS = {
   free: {
     key: 'free',
     name: 'Free',
-    tagline: 'To try LogBase with a small shop',
+    tagline: 'To try LogBase for yourself',
     monthly: 0,
     yearly: 0,
     limits: { staff: 0, stocks: 50 },

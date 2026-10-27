@@ -7,6 +7,7 @@ const { adjustmentForUser, adjustmentsForUser, productForUser } = require('../ut
 const { logActivity } = require('../utils/audit');
 const { notifyOwners, checkLowStock } = require('../utils/notifications');
 const { resolveShop, quantityInShop, adjustStock, undoAdjust, applyShopFilter } = require('../utils/shopStock');
+const { assertRoomForUnits } = require('../utils/billing');
 
 // What each reason does to the stock:
 //   -1 takes units out, +1 puts units in, 0 means "the number I counted" (the change is worked out).
@@ -98,6 +99,9 @@ async function createAdjustment(req, res, next) {
       change = round2(sign * qty);
     }
     if (current + change < 0) throw httpError(400, `You cannot take out ${qty}: only ${current} of ${label} ${current === 1 ? 'is' : 'are'} in stock.`);
+
+    // putting units on the shelf must fit in what the plan holds (taking units out never does)
+    if (change > 0) await assertRoomForUnits(req.businessId, change);
 
     // Apply it in one atomic step. The check holds the business total we calculated from, so if a sale
     // (or another adjustment) changed the stock in the meantime we stop instead of getting it wrong.

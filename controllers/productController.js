@@ -12,9 +12,12 @@ const {
 const { productForUser, productsForUser } = require('../utils/staffView');
 const { canSeeCosts } = require('../utils/permissions');
 const { logActivity } = require('../utils/audit');
-const { assertCanAddStock } = require('../utils/billing');
+const { assertRoomForUnits } = require('../utils/billing');
 const { loadPreferences } = require('../utils/settings');
 const ShopStock = require('../models/ShopStock');
+const SerialUnit = require('../models/SerialUnit');
+const { cleanSerialList } = require('../utils/serials');
+const { assertSerialsNew } = require('../utils/serialUnits');
 const { resolveShop, listShops, withShopStock, incRow, heldOutsideMain } = require('../utils/shopStock');
 
 const EDITABLE_FIELDS = [
@@ -45,6 +48,14 @@ function pickFields(body, user) {
   if (data.brand !== undefined) {
     data.brand = String(data.brand || '').replace(/\s+/g, ' ').trim();
     if (data.brand.length > 60) throw httpError(400, 'The brand can be at most 60 characters');
+  }
+  if (data.barcode !== undefined) {
+    data.barcode = String(data.barcode || '').trim();
+    if (data.barcode.length > 60) throw httpError(400, 'The barcode can be at most 60 characters');
+  }
+  if (data.description !== undefined) {
+    data.description = String(data.description || '').trim();
+    if (data.description.length > 1000) throw httpError(400, 'The description can be at most 1000 characters');
   }
   if (data.warrantyMonths !== undefined) {
     const months = data.warrantyMonths === '' || data.warrantyMonths === null ? 0 : Number(data.warrantyMonths);
@@ -170,11 +181,40 @@ async function getProduct(req, res, next) {
   }
 }
 
+// The numbers typed with a new product: [{ index (null = the product itself, else the colour / size's place), serials }].
+// Not more numbers than pieces, none twice, and only for a product tracked by IMEI / serial number.
+function readOpeningSerials(body, data, variants) {
+  const groups = [];
+  if (variants.length > 0) {
+    const raw = Array.isArray(body.variants) ? body.variants : [];
+    variants.forEach((v, index) => {
+      const list = cleanSerialList(raw[index] && raw[index].serials, variantLabel(v) || 'This colour / size');
+      if (list.length === 0) return;
+      if (list.length > (Number(v.quantity) || 0)) {
+        throw httpError(400, `${variantLabel(v)}: you entered ${list.length} IMEI / serial numbers but only ${Number(v.quantity) || 0} piece${Number(v.quantity) === 1 ? '' : 's'}. Raise the quantity or remove some numbers.`);
+      }
+      groups.push({ index, serials: list });
+    });
+  } else {
+    const list = cleanSerialList(body.serials, 'The list');
+    if (list.length > 0) {
+      if (list.length > (Number(data.quantity) || 0)) {
+        throw httpError(400, `You entered ${list.length} IMEI / serial numbers but only ${Number(data.quantity) || 0} piece${Number(data.quantity) === 1 ? '' : 's'}. Raise the starting quantity or remove some numbers.`);
+      }
+      groups.push({ index: null, serials: list });
+    }
+  }
+  if (groups.length === 0) return groups;
+  if (!data.tracksSerials) throw httpError(400, 'Turn on "Track each item by IMEI / serial number" to record numbers.');
+  const all = groups.flatMap((g) => g.serials);
+  if (new Set(all).size !== all.length) throw httpError(400, 'The same IMEI / serial number is listed twice.');
+  return groups;
+}
+
 async function createProduct(req, res, next) {
   try {
     const data = pickFields(req.body, req.user);
 
-    await assertCanAddStock(req.businessId);
     // the product belongs to the store it is made in
     const shop = await resolveShop(req, undefined, { strict: true });
     await assertNameIsFree(req.businessId, data.name, undefined, shop.id);
@@ -191,6 +231,13 @@ async function createProduct(req, res, next) {
       data.quantity = totalQuantity(variants);
     }
 
+    // the opening stock must fit in what the plan holds
+    await assertRoomForUnits(req.businessId, Number(data.quantity) || 0);
+
+    // IMEI / serial numbers of the opening stock (optional: as many as the person has, up to the pieces added)
+    const wantedSerials = readOpeningSerials(req.body, data, variants);
+    await assertSerialsNew(req.businessId, wantedSerials.flatMap((g) => g.serials));
+
     // a product added without a low-stock level gets the business's usual one (Settings > Preferences)
     if (data.reorderThreshold === undefined || data.reorderThreshold === '' || data.reorderThreshold === null) {
       data.reorderThreshold = (await loadPreferences(req.businessId)).defaultReorderLevel;
@@ -203,6 +250,35 @@ async function createProduct(req, res, next) {
         for (const v of product.variants) if (v.quantity > 0) await incRow(req.businessId, product._id, v._id, shop.id, v.quantity);
       } else if (product.quantity > 0) {
         await incRow(req.businessId, product._id, null, shop.id, product.quantity);
+      }
+    }
+    if (wantedSerials.length > 0) {
+      const now = new Date();
+      const docs = wantedSerials.flatMap((g) => {
+        const v = g.index === null ? null : product.variants[g.index];
+        return g.serials.map((serial) => ({
+          business: req.businessId,
+          product: product._id,
+          variant: v ? v._id : undefined,
+          variantLabel: v ? variantLabel(v) : undefined,
+          shop: shop.id || undefined,
+          serial,
+          status: 'in_stock',
+          receivedAt: now,
+          events: [{ type: 'received', at: now, note: 'Opening stock' }],
+        }));
+      });
+      try {
+        await SerialUnit.insertMany(docs);
+      } catch (err) {
+        // undo the product so nothing is half saved
+        await ShopStock.deleteMany({ business: req.businessId, product: product._id }).catch(() => {});
+        await SerialUnit.deleteMany({ business: req.businessId, product: product._id }).catch(() => {});
+        await Product.deleteOne({ _id: product._id, business: req.businessId }).catch(() => {});
+        if (err && (err.code === 11000 || (err.writeErrors && err.writeErrors.length))) {
+          throw httpError(409, 'One of those IMEI / serial numbers was just recorded by someone else. Check them and try again.');
+        }
+        throw err;
       }
     }
     logActivity(req, {
@@ -234,6 +310,8 @@ async function updateProduct(req, res, next) {
     if (product.variants.length > 0) delete data.quantity;
 
     if (data.quantity !== undefined) await assertTotalCoversStores(req.businessId, product._id, null, data.quantity, product.name);
+    // raising the stock count is adding stock
+    if (data.quantity !== undefined) await assertRoomForUnits(req.businessId, (Number(data.quantity) || 0) - (Number(product.quantity) || 0));
     const quantityBefore = product.quantity;
     product.set(data);
     await product.save();
@@ -272,7 +350,7 @@ async function restoreProduct(req, res, next) {
     if (!/^[a-f0-9]{24}$/i.test(String(req.params.id))) throw httpError(404, 'Product not found');
     const product = await Product.findOne({ _id: req.params.id, business: req.businessId, isActive: false });
     if (!product) throw httpError(404, 'Archived product not found');
-    await assertCanAddStock(req.businessId);
+    await assertRoomForUnits(req.businessId, Number(product.quantity) || 0);
     await assertNameIsFree(req.businessId, product.name, product._id, product.shop);
     product.isActive = true;
     await product.save();
@@ -317,6 +395,11 @@ async function addVariant(req, res, next) {
       variant.quantity = product.quantity;
     }
 
+    // the product's total after this colour / size is added (a first colour / size carries the plain stock over)
+    const totalBefore = Number(product.quantity) || 0;
+    const totalAfter = totalQuantity([...product.variants.map((v) => ({ quantity: v.quantity })), { quantity: variant.quantity }]);
+    await assertRoomForUnits(req.businessId, totalAfter - totalBefore);
+
     product.variants.push(variant);
     await product.save();
     // stock other stores held of the plain product now belongs to this first colour / size
@@ -354,8 +437,17 @@ async function updateVariant(req, res, next) {
 
     await assertTotalCoversStores(req.businessId, product._id, variant._id, merged.quantity, `${product.name} (${variantLabel(variant)})`);
     const variantBefore = variant.quantity;
+    await assertRoomForUnits(req.businessId, (Number(merged.quantity) || 0) - (Number(variantBefore) || 0));
+    const labelBefore = variantLabel(variant);
     variant.set(merged);
+    // an emptied price box means "use the product's price again"
+    if (req.body.sellingPrice === '' || req.body.sellingPrice === null) variant.sellingPrice = undefined;
+    if (canSeeCosts(req.user) && (req.body.costPrice === '' || req.body.costPrice === null)) variant.costPrice = undefined;
     await product.save();
+    // the numbers recorded under this colour / size show its new name
+    if (variantLabel(merged) !== labelBefore) {
+      await SerialUnit.updateMany({ business: req.businessId, product: product._id, variant: variant._id }, { $set: { variantLabel: variantLabel(merged) } }).catch(() => {});
+    }
     logActivity(req, {
       action: 'product.update',
       summary: `Edited ${variantLabel(merged)} of ${product.name}${merged.quantity !== variantBefore ? `. Stock changed from ${variantBefore} to ${merged.quantity}` : ''}`,

@@ -9,6 +9,7 @@ const { logActivity } = require('../utils/audit');
 const { loadPreferences } = require('../utils/settings');
 const { notifyOwners } = require('../utils/notifications');
 const { createNumbered } = require('../utils/sequence');
+const { assertCanAddOrder } = require('../utils/billing');
 const { applyWorkingShop, shopForNewRecord } = require('../utils/shopStock');
 const {
   clean,
@@ -640,6 +641,10 @@ async function createOrder(req, res, next) {
         return res.status(200).json({ duplicate: true, order: view(existing) });
       }
     }
+
+    // a laundromat whose free trial is over (14 days or 50 orders) or whose plan has ended cannot take NEW orders
+    // (an order the app is only replaying, found above by its clientId, is never stopped)
+    await assertCanAddOrder(req.businessId);
 
     const customer = await findCustomer(req, body.customer);
     const now = new Date();

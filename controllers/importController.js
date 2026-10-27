@@ -5,7 +5,7 @@ const { ensureCategory } = require('../utils/categories');
 const { httpError } = require('../utils/httpError');
 const { phoneKey } = require('../utils/phone');
 const { logActivity } = require('../utils/audit');
-const { entitlements } = require('../utils/billing');
+const { entitlements, unitsInStock } = require('../utils/billing');
 const { cleanProductRow, cleanCustomerRow } = require('../utils/importRows');
 const { loadPreferences } = require('../utils/settings');
 
@@ -40,11 +40,11 @@ async function importProducts(req, res, next) {
     const prefs = await loadPreferences(req.businessId);
 
     const ent = await entitlements(req.businessId);
-    const existing = await Product.find({ business: req.businessId, isActive: true }).select('name');
     // each store has its own products, so a name only clashes with one in the same store
     const sameStore = await Product.find({ business: req.businessId, isActive: true, shop: shop.id || null }).select('name');
     const taken = new Set(sameStore.map((p) => nameKey(p.name)));
-    let room = ent.limits.stocks == null ? Infinity : Math.max(0, ent.limits.stocks - existing.length);
+    // the plan holds a number of UNITS in stock: each row may add its opening stock only while there is room
+    let room = ent.limits.stocks == null ? Infinity : Math.max(0, ent.limits.stocks - (await unitsInStock(req.businessId)));
 
     const created = [];
     const skipped = [];
@@ -58,7 +58,11 @@ async function importProducts(req, res, next) {
       if (data.reorderThreshold === undefined) data.reorderThreshold = prefs.defaultReorderLevel;
       const key = nameKey(data.name);
       if (taken.has(key)) { skipped.push({ line, name: data.name, reason: 'A product with this name already exists' }); continue; }
-      if (room < 1) { skipped.push({ line, name: data.name, reason: `Your ${ent.planName} plan allows up to ${ent.limits.stocks} stocks` }); continue; }
+      const units = Number(data.quantity) || 0;
+      if (units > room) {
+        skipped.push({ line, name: data.name, reason: `Your ${ent.planName} plan holds up to ${ent.limits.stocks} units in stock, and this row would go over that` });
+        continue;
+      }
 
       try {
         if (data.category) data.category = (await ensureCategory(req.businessId, data.category)).category.name;
@@ -66,7 +70,7 @@ async function importProducts(req, res, next) {
         // opening stock goes into the store the person is working in
         if (shop.id && made.quantity > 0) await incRow(req.businessId, made._id, null, shop.id, made.quantity);
         taken.add(key);
-        room -= 1;
+        room -= units;
         created.push(data.name);
       } catch (err) {
         skipped.push({ line, name: data.name, reason: err.name === 'ValidationError' ? 'Some of the values are not valid' : 'Could not be saved' });

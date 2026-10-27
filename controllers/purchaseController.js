@@ -13,6 +13,7 @@ const { cleanSerialList } = require('../utils/serials');
 const { assertSerialsNew, receivedUnitDocs } = require('../utils/serialUnits');
 const { round2 } = require('../utils/money');
 const { resolveShop, applyShopFilter, incRow } = require('../utils/shopStock');
+const { assertRoomForUnits } = require('../utils/billing');
 
 const MAX_PURCHASE_PHOTOS = 8;
 
@@ -229,6 +230,9 @@ async function createPurchase(req, res, next) {
     const delivery = readDelivery(body);
     const total = round2(lines.reduce((sum, l) => sum + l.totalCost, 0));
     const payment = readPayment(body, isOwner, total);
+
+    // the plan must have room for the units being received
+    await assertRoomForUnits(req.businessId, lines.reduce((sum, l) => sum + (Number(l.qty) || 0), 0));
 
     // Add the stock (and remember the new cost price) for every line.
     const updatedProducts = new Map();

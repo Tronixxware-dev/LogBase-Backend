@@ -5,7 +5,7 @@ const mongoose = require('mongoose');
 // where each came from, who bought it and until when its warranty runs.
 const eventSchema = new mongoose.Schema(
   {
-    type: { type: String, enum: ['received', 'sold', 'returned', 'written_off', 'transferred'], required: true },
+    type: { type: String, enum: ['received', 'sold', 'returned', 'written_off', 'transferred', 'edited'], required: true },
     at: { type: Date, default: Date.now },
     // who it was sold to / returned by, or a short note
     note: { type: String, trim: true },

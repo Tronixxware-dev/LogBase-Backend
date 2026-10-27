@@ -23,8 +23,8 @@ const { httpError } = require('../utils/httpError');
 const { hashToken, TOKEN_MINUTES } = require('./passwordResetController');
 const { isSuperAdminEmail } = require('../utils/superAdmin');
 const { cleanEmail, assertCanUseEmail, applyEmailChange } = require('../utils/emailChange');
-const { addDays, entitlementsFor, getSubscription } = require('../utils/billing');
-const { PLANS, PAID_PLANS, INTERVALS, TRIAL_PLAN, TRIAL_DAYS, priceOf } = require('../config/plans');
+const { addDays, entitlementsFor, getSubscription, orderUsage } = require('../utils/billing');
+const { PLANS, PAID_PLANS, INTERVALS, TRIAL_PLAN, TRIAL_DAYS, LAUNDRY_TRIAL_ORDERS, priceOf } = require('../config/plans');
 
 const DAY = 24 * 60 * 60 * 1000;
 const PAGE_SIZE = 20;
@@ -90,14 +90,14 @@ function subscriptionOf(business, sub) {
 // Everything the list and the overview need to know about each business's plan, worked out the same way the app does it.
 async function loadBusinessStates() {
   const [businesses, subs] = await Promise.all([
-    Business.find().select('name email phone isActive createdAt suspendedAt suspendedReason').lean(),
+    Business.find().select('name email phone isActive createdAt suspendedAt suspendedReason businessType laundryCounter').lean(),
     Subscription.find().lean(),
   ]);
   const subByBusiness = new Map(subs.map((s) => [String(s.business), s]));
   const now = new Date();
   return businesses.map((b) => {
     const sub = subscriptionOf(b, subByBusiness.get(String(b._id)));
-    const ent = entitlementsFor(sub, now);
+    const ent = entitlementsFor(sub, now, orderUsage(b, sub));
     return { business: b, sub, ent };
   });
 }
@@ -121,6 +121,8 @@ function planView(state) {
     daysLeft: ent.daysLeft,
     autoRenew: Boolean(sub.autoRenew),
     lastPaidPlan: ent.lastPaidPlan,
+    trialEndedBy: ent.trialEndedBy,
+    trialOrders: ent.trialOrders,
   };
 }
 
@@ -382,7 +384,7 @@ async function businessDetail(id) {
 
   const subDoc = await Subscription.findOne({ business: business._id }).lean();
   const sub = subscriptionOf(business, subDoc);
-  const ent = entitlementsFor(sub, new Date());
+  const ent = entitlementsFor(sub, new Date(), orderUsage(business, sub));
 
   const [users, payments, saleAgg, productCount, customerCount, expenseAgg, purchaseAgg, recentActivity, adminNotes] = await Promise.all([
     User.find({ business: business._id }).select('name email role jobTitle phone isActive createdAt').sort({ role: -1, createdAt: 1 }).lean(),
@@ -538,12 +540,18 @@ async function extendTrial(req, res, next) {
 
     const sub = await getSubscription(business._id);
     const now = new Date();
-    const ent = entitlementsFor(sub, now);
+    const usage = orderUsage(business, sub);
+    const ent = entitlementsFor(sub, now, usage);
     if (ent.state === 'active') throw httpError(400, 'This business has a paid plan running. Use "Give a plan" to add time to it instead.');
 
-    const start = ent.state === 'trialing' && sub.trialEndsAt ? new Date(sub.trialEndsAt) : now;
+    // more days start from the end of the trial while it still has days left (even when a laundromat's orders ran out first), otherwise from today
+    const daysLeft = sub.status === 'trialing' && sub.trialEndsAt && new Date(sub.trialEndsAt).getTime() > now.getTime();
+    const start = daysLeft ? new Date(sub.trialEndsAt) : now;
     const end = addDays(start, days);
-    await Subscription.updateOne({ _id: sub._id }, { $set: { status: 'trialing', plan: TRIAL_PLAN, trialEndsAt: end } });
+    const set = { status: 'trialing', plan: TRIAL_PLAN, trialEndsAt: end };
+    // a laundromat's trial is also counted in orders: giving more trial gives it at least the standard number of orders to take from here
+    if (usage) set.trialOrderLimit = Math.max(usage.orderLimit, usage.orders + LAUNDRY_TRIAL_ORDERS);
+    await Subscription.updateOne({ _id: sub._id }, { $set: set });
     await logAdmin(req, { action: 'trial.extend', summary: `Gave ${business.name} ${days} more trial day${days === 1 ? '' : 's'} (until ${end.toISOString().slice(0, 10)})`, business, meta: { days } });
     res.json({ message: `Trial extended by ${days} day${days === 1 ? '' : 's'}`, detail: await businessDetail(business._id) });
   } catch (err) {

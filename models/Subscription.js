@@ -10,6 +10,9 @@ const subscriptionSchema = new mongoose.Schema(
     plan: { type: String, enum: ['free', 'starter', 'business'], default: 'business' },
     interval: { type: String, enum: ['monthly', 'yearly'], default: 'monthly' },
     trialEndsAt: { type: Date },
+    // A laundromat's trial also ends after this many laundry orders. Empty = the standard number (LAUNDRY_TRIAL_ORDERS);
+    // the administrator raises it when giving a laundromat more trial.
+    trialOrderLimit: { type: Number, min: 1 },
     currentPeriodEnd: { type: Date },
     lastPaymentAt: { type: Date },
 

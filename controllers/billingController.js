@@ -1,12 +1,11 @@
 const crypto = require('crypto');
 const BillingPayment = require('../models/BillingPayment');
 const Subscription = require('../models/Subscription');
-const Product = require('../models/Product');
 const User = require('../models/User');
 const paystack = require('../utils/paystack');
 const { httpError } = require('../utils/httpError');
 const { logActivity } = require('../utils/audit');
-const { getSubscription, entitlementsFor, entitlements, settlePayment, PLAN_ORDER } = require('../utils/billing');
+const { getSubscription, describeSubscription, entitlements, settlePayment, unitsInStock, PLAN_ORDER } = require('../utils/billing');
 const { PLANS, PAID_PLANS, INTERVALS, TRIAL_DAYS, CURRENCY, priceOf } = require('../config/plans');
 
 function naira(kobo) {
@@ -65,13 +64,13 @@ async function getBilling(req, res, next) {
   try {
     const sub = await getSubscription(req.businessId);
     const [stocks, staff, payments] = await Promise.all([
-      Product.countDocuments({ business: req.businessId, isActive: true }),
+      unitsInStock(req.businessId),
       User.countDocuments({ business: req.businessId, role: 'staff', isActive: true }),
       BillingPayment.find({ business: req.businessId }).sort({ createdAt: -1 }).limit(10),
     ]);
     res.json({
       configured: paystack.isConfigured(),
-      subscription: entitlementsFor(sub),
+      subscription: await describeSubscription(sub),
       autoRenew: autoRenewView(sub),
       usage: { stocks, staff },
       plans: publicPlans(),
@@ -160,7 +159,7 @@ async function verify(req, res, next) {
     }
     res.json({
       outcome: result.outcome,
-      subscription: entitlementsFor(await getSubscription(req.businessId)),
+      subscription: await describeSubscription(await getSubscription(req.businessId)),
       autoRenew: result.autoRenew || null, // 'on' | 'off' | 'unsupported' | null
       payment: paymentView(result.payment),
     });
@@ -237,7 +236,7 @@ async function setAutoRenew(req, res, next) {
       action: 'billing.auto_renew',
       summary: enabled ? 'Turned automatic renewal on' : 'Turned automatic renewal off',
     });
-    res.json({ autoRenew: autoRenewView(updated), subscription: entitlementsFor(updated) });
+    res.json({ autoRenew: autoRenewView(updated), subscription: await describeSubscription(updated) });
   } catch (err) {
     next(err);
   }

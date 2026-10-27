@@ -1,5 +1,5 @@
 const express = require('express');
-const { lookup, available } = require('../controllers/serialController');
+const { lookup, available, listForProduct, addForProduct, updateUnit, removeUnit } = require('../controllers/serialController');
 const { requireAuth, requirePermission } = require('../middleware/auth');
 
 const router = express.Router();
@@ -10,5 +10,12 @@ router.use(requireAuth);
 const mayLook = requirePermission('recordSales', 'viewAllSales', 'viewInsights', 'viewStock', 'managePurchases', 'processReturns');
 router.get('/lookup', mayLook, lookup);
 router.get('/available', mayLook, available);
+
+// Seeing, adding, correcting and removing the numbers of a product is part of managing that product.
+const manage = requirePermission('manageProducts');
+router.get('/product/:id', manage, listForProduct);
+router.post('/product/:id', manage, addForProduct);
+router.put('/:id', manage, updateUnit);
+router.delete('/:id', manage, removeUnit);
 
 module.exports = router;

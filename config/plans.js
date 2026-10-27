@@ -3,6 +3,8 @@
 //
 // Prices are in kobo (1 naira = 100 kobo), which is what Paystack wants.
 // A limit of null means "no limit".
+// limits.stocks is the number of UNITS the business may hold in stock at one time (every unit of every product).
+// Selling stock makes room again; the limit only stops more stock being added (see assertRoomForUnits in utils/billing.js).
 const PLANS = {
   free: {
     key: 'free',
@@ -53,6 +55,10 @@ const INTERVALS = ['monthly', 'yearly'];
 const TRIAL_PLAN = 'business';
 const TRIAL_DAYS = 14;
 
+// A laundromat's free trial also ends once it has taken this many laundry orders (whichever comes first, 14 days or this
+// many orders). Starter and Business have no order limit. See orderUsage / assertCanAddOrder in utils/billing.js.
+const LAUNDRY_TRIAL_ORDERS = 50;
+
 const CURRENCY = 'NGN';
 
 function priceOf(plan, interval) {
@@ -61,4 +67,4 @@ function priceOf(plan, interval) {
   return p[interval];
 }
 
-module.exports = { PLANS, PLAN_ORDER, PAID_PLANS, INTERVALS, TRIAL_PLAN, TRIAL_DAYS, CURRENCY, priceOf };
+module.exports = { PLANS, PLAN_ORDER, PAID_PLANS, INTERVALS, TRIAL_PLAN, TRIAL_DAYS, LAUNDRY_TRIAL_ORDERS, CURRENCY, priceOf };

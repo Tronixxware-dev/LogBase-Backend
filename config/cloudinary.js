@@ -66,6 +66,18 @@ const purchaseStorage = new CloudinaryStorage({
 
 const purchaseUpload = multer({ storage: purchaseStorage, limits: photoLimits, fileFilter: imageOnly });
 
+// Photos kept on a tailor order (the style the customer wants)
+const jobStorage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: 'logbase/jobs',
+    allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+    transformation: [{ width: 1600, height: 1600, crop: 'limit' }],
+  },
+});
+
+const jobUpload = multer({ storage: jobStorage, limits: photoLimits, fileFilter: imageOnly });
+
 // A person's own profile photo: one picture, cropped to a square around the face, at most 5 MB
 const avatarStorage = new CloudinaryStorage({
   cloudinary,
@@ -114,4 +126,4 @@ const logoUpload = multer({
   fileFilter: imageOnly,
 });
 
-module.exports = { cloudinary, upload, saleUpload, purchaseUpload, avatarUpload, coverUpload, logoUpload };
+module.exports = { cloudinary, upload, saleUpload, purchaseUpload, jobUpload, avatarUpload, coverUpload, logoUpload };

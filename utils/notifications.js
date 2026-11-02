@@ -14,7 +14,7 @@ const NOTIFICATION_TYPES = [
   { key: 'returns', label: 'Returns', hint: 'A staff takes an item back from a customer', owner: true },
   { key: 'stockAdjustments', label: 'Stock changes', hint: 'A staff records damaged, lost or found stock, or a stock count', owner: true },
   { key: 'transfers', label: 'Stock transfers', hint: 'Stock is sent to another store and waits to be received', owner: true },
-  { key: 'jobReady', label: 'Jobs ready', hint: 'A repair job or laundry order is marked ready for pick-up', owner: true },
+  { key: 'jobReady', label: 'Jobs ready', hint: 'A repair job, laundry order or tailor order is marked ready for pick-up', owner: true },
 ];
 const TYPE_KEYS = NOTIFICATION_TYPES.map((t) => t.key);
 

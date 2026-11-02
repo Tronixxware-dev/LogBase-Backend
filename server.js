@@ -30,6 +30,8 @@ const referralRoutes = require('./routes/referralRoutes');
 const swapRoutes = require('./routes/swapRoutes');
 const repairRoutes = require('./routes/repairRoutes');
 const laundryRoutes = require('./routes/laundryRoutes');
+const tailorRoutes = require('./routes/tailorRoutes');
+const workerRoutes = require('./routes/workerRoutes');
 const shopRoutes = require('./routes/shopRoutes');
 const transferRoutes = require('./routes/transferRoutes');
 const { startRenewalScheduler, stopRenewalScheduler } = require('./utils/renewals');
@@ -72,6 +74,8 @@ app.use('/api/sales', saleRoutes);
 app.use('/api/swaps', swapRoutes); // item swaps: the list (a swap is recorded as a sale with a trade-in)
 app.use('/api/repairs', repairRoutes); // repair jobs
 app.use('/api/laundry', laundryRoutes); // the laundry register and its list of clothing items
+app.use('/api/tailor', tailorRoutes); // tailor orders, the price list of garments and customers' measurements
+app.use('/api/workers', workerRoutes); // tailors, what they earned and were paid
 app.use('/api/shops', shopRoutes); // the stores of a business (the main store and any others)
 app.use('/api/transfers', transferRoutes); // stock sent from one store to another
 app.use('/api/roles', roleRoutes);

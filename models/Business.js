@@ -10,13 +10,17 @@ const businessSchema = new mongoose.Schema(
     logoUrl: { type: String, default: null },
     logoPublicId: { type: String }, // needed to delete the logo from Cloudinary again
     currency: { type: String, default: 'NGN' },
-    // Chosen at signup. Decides the menus and pages the business gets (phone shop, general shop, laundromat, repair workshop).
+    // Chosen at signup. Decides the menus and pages the business gets (phone shop, general shop, laundromat, repair workshop, tailor).
     businessType: { type: String, enum: BUSINESS_TYPE_KEYS, default: DEFAULT_BUSINESS_TYPE },
     // Laundromats: set once the standard list of clothing items has been added (so deleting them all later does not bring them back)
     laundryItemsSeeded: { type: Boolean, default: false },
     // The last repair job / laundry order number given out. Only ever goes up, so a number is never used twice, even after a job is deleted.
     repairCounter: { type: Number, default: 0 },
     laundryCounter: { type: Number, default: 0 },
+    // tailors: the last order number given out
+    tailorCounter: { type: Number, default: 0 },
+    // Tailors: set once the standard list of styles (Agbada, Senator, Gown...) has been added (so deleting them later does not bring them back)
+    tailorStylesSeeded: { type: Boolean, default: false },
     transferCounter: { type: Number, default: 0 },
     // Identity shown on receipts, slips and tags (Settings > Organization)
     website: { type: String, trim: true, maxlength: 120 },

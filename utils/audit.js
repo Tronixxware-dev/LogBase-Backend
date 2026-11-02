@@ -16,6 +16,8 @@ const ACTIVITY_CATEGORIES = [
   { key: 'swap', label: 'Item swaps' },
   { key: 'repair', label: 'Repairs' },
   { key: 'laundry', label: 'Laundry' },
+  { key: 'tailor', label: 'Tailoring' },
+  { key: 'worker', label: 'Tailors and their pay' },
   { key: 'transfer', label: 'Stock transfers' },
   { key: 'store', label: 'Stores' },
   { key: 'staff', label: 'Staff and roles' },

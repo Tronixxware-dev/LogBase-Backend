@@ -56,13 +56,21 @@ async function getSubscription(businessId, now = new Date()) {
   }
 }
 
-// A laundromat's free trial is also counted in orders. Returns { orders, orderLimit } for a laundromat that is on its
-// trial, and undefined for every other business (their trial is days only). `business` needs businessType and laundryCounter.
-// The order count is the business's laundry counter, which only ever goes up, so deleting an order never gives a trial order back.
+// The kinds of business whose free trial is also counted in orders (they hold no stock to count): a laundromat counts laundry
+// orders and a tailor counts tailor orders. Each keeps a counter on the Business.
+const ORDER_COUNTER_FIELDS = { laundromat: 'laundryCounter', tailor: 'tailorCounter' };
+// what the trial counts, in the words the app uses ("You have taken 20 of 50 laundry orders")
+const ORDER_NOUNS = { laundromat: 'laundry orders', tailor: 'tailoring orders' };
+const ORDER_COUNTER_SELECT = ['businessType', ...Object.values(ORDER_COUNTER_FIELDS)].join(' ');
+
+// Returns { orders, orderLimit } for a business of those kinds that is on its trial, and undefined for every other
+// business (their trial is days only). `business` needs businessType and its counter.
+// The order count is the business's counter, which only ever goes up, so deleting an order never gives a trial order back.
 function orderUsage(business, sub) {
-  if (!business || business.businessType !== 'laundromat') return undefined;
+  const field = business && ORDER_COUNTER_FIELDS[business.businessType];
+  if (!field) return undefined;
   const limit = sub && Number(sub.trialOrderLimit) > 0 ? Number(sub.trialOrderLimit) : LAUNDRY_TRIAL_ORDERS;
-  return { orders: Number(business.laundryCounter) || 0, orderLimit: limit };
+  return { orders: Number(business[field]) || 0, orderLimit: limit, noun: ORDER_NOUNS[business.businessType] };
 }
 
 // What the business gets right now:
@@ -70,7 +78,7 @@ function orderUsage(business, sub) {
 //   state 'trialing'    free trial not over (Business features)
 //   state 'expired'     paid period is over -> Free
 //   state 'trial_ended' trial is over and nothing was paid -> Free (trialEndedBy says whether the days or the orders ran out)
-// `usage` ({ orders, orderLimit }, from orderUsage) is only given for a laundromat; with it the trial also ends at orderLimit orders.
+// `usage` ({ orders, orderLimit }, from orderUsage) is only given for a laundromat or tailor business; with it the trial also ends at orderLimit orders.
 function entitlementsFor(sub, now = new Date(), usage) {
   const t = now.getTime();
   let plan = 'free';
@@ -109,20 +117,22 @@ function entitlementsFor(sub, now = new Date(), usage) {
     daysLeft: end ? Math.max(0, Math.ceil((new Date(end).getTime() - t) / DAY)) : 0,
     // what the business last paid for, even when that has run out (shown as "was on Starter")
     lastPaidPlan: sub.status === 'active' ? sub.plan : null,
-    // laundromats only: how many orders the trial allows and how many have been taken (null for every other business)
+    // laundromats and tailors only: how many orders the trial allows and how many have been taken (null for every other business)
     trialEndedBy,
     trialOrders: usage && sub.status === 'trialing' ? { used: usage.orders, limit: usage.orderLimit } : null,
-    // laundromats only: true when new laundry orders are refused (trial over, or the paid plan ran out)
+    // what the orders are called for this business ("laundry orders", "tailoring orders"); null for every other business
+    orderNoun: usage ? usage.noun || 'orders' : null,
+    // laundromats and tailors only: true when new orders are refused (trial over, or the paid plan ran out)
     ordersBlocked: Boolean(usage) && state !== 'active' && state !== 'trialing',
   };
 }
 
-// The same as entitlementsFor, but looks up whether the business is a laundromat on its trial and counts its orders.
+// The same as entitlementsFor, but looks up whether the business counts its trial in orders and counts them.
 async function describeSubscription(sub, now = new Date()) {
   let usage;
   const paidAndRunning = sub.status === 'active' && sub.currentPeriodEnd && new Date(sub.currentPeriodEnd).getTime() > now.getTime();
   if (!paidAndRunning) {
-    const business = await Business.findById(sub.business).select('businessType laundryCounter').lean();
+    const business = await Business.findById(sub.business).select(ORDER_COUNTER_SELECT).lean();
     usage = orderUsage(business, sub);
   }
   return entitlementsFor(sub, now, usage);
@@ -180,12 +190,12 @@ async function assertCanAddStaff(businessId) {
   }
 }
 
-// Called before a NEW laundry order is taken. A laundromat may take orders while it is on its trial (14 days or
+// Called before a NEW laundry order or tailor order is taken. Such a business may take orders while it is on its trial (14 days or
 // LAUNDRY_TRIAL_ORDERS orders, whichever comes first) or while a paid plan runs; after that it must upgrade. Starter and Business
 // have no order limit. Orders already taken are never touched, and other kinds of business are never stopped by this.
 async function assertCanAddOrder(businessId) {
-  const business = await Business.findById(businessId).select('businessType laundryCounter').lean();
-  if (!business || business.businessType !== 'laundromat') return;
+  const business = await Business.findById(businessId).select(ORDER_COUNTER_SELECT).lean();
+  if (!business || !ORDER_COUNTER_FIELDS[business.businessType]) return;
   const sub = await getSubscription(businessId);
   const ent = entitlementsFor(sub, new Date(), orderUsage(business, sub));
   if (ent.state === 'active' || ent.state === 'trialing') return;

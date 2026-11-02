@@ -6,6 +6,7 @@ const BUSINESS_TYPES = [
   { key: 'retail', label: 'General shop / retail' },
   { key: 'laundromat', label: 'Laundromat' },
   { key: 'repair', label: 'Repair workshop' },
+  { key: 'tailor', label: 'Tailor / fashion designer' },
 ];
 
 const BUSINESS_TYPE_KEYS = BUSINESS_TYPES.map((t) => t.key);

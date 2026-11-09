@@ -108,6 +108,23 @@ function emailChangedEmail({ name, oldEmail, newEmail }) {
   return { subject: 'Your LogBase login email was changed', html, text };
 }
 
+// Sent after an account has been deleted from the app
+function accountDeletedEmail({ name, businessName, wholeBusiness }) {
+  const hello = name ? `Hi ${name},` : 'Hi,';
+  const what = wholeBusiness
+    ? `The LogBase account of ${businessName || 'your business'} and all its records, pictures and logins have been deleted.`
+    : 'Your LogBase login has been deleted.';
+  const text = `${hello}\n\n${what}\nThis cannot be undone. Records of plan payments are kept only as far as the law and accounting require.\nIf this was not you, contact tronixxware01@gmail.com right away.\n`;
+  const html = layout(
+    'Your LogBase account was deleted',
+    `<p style="margin:0 0 12px;font-size:14px;line-height:1.5">${escapeHtml(hello)}</p>
+<p style="margin:0 0 12px;font-size:14px;line-height:1.5">${escapeHtml(what)}</p>
+<p style="margin:0 0 12px;font-size:14px;line-height:1.5">This cannot be undone. Records of plan payments are kept only as far as the law and accounting require.</p>
+<p style="margin:0;font-size:12px;color:#6b7280;line-height:1.5">If this was not you, contact tronixxware01@gmail.com right away.</p>`
+  );
+  return { subject: 'Your LogBase account was deleted', html, text };
+}
+
 // Sent once, right after a business signs up
 function welcomeEmail({ name, businessName, trialDays, link }) {
   const hello = name ? `Hi ${name},` : 'Hi,';
@@ -194,4 +211,4 @@ function renewalFailedEmail({ name, planName, amount, reason, willRetry, link })
   return { subject: willRetry ? 'Your LogBase plan could not be renewed' : 'Automatic renewal is off: please renew your plan', html, text };
 }
 
-module.exports = { isConfigured, sendEmail, welcomeEmail, resetPasswordEmail, passwordChangedEmail, confirmEmailEmail, emailChangeRequestedEmail, emailChangedEmail, announcementEmail, renewalSucceededEmail, renewalFailedEmail, escapeHtml };
+module.exports = { isConfigured, sendEmail, welcomeEmail, resetPasswordEmail, passwordChangedEmail, confirmEmailEmail, emailChangeRequestedEmail, emailChangedEmail, accountDeletedEmail, announcementEmail, renewalSucceededEmail, renewalFailedEmail, escapeHtml };

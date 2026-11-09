@@ -90,7 +90,7 @@ function subscriptionOf(business, sub) {
 // Everything the list and the overview need to know about each business's plan, worked out the same way the app does it.
 async function loadBusinessStates() {
   const [businesses, subs] = await Promise.all([
-    Business.find().select('name email phone isActive createdAt suspendedAt suspendedReason businessType laundryCounter tailorCounter').lean(),
+    Business.find({ deletedAt: { $exists: false } }).select('name email phone isActive createdAt suspendedAt suspendedReason businessType laundryCounter tailorCounter').lean(),
     Subscription.find().lean(),
   ]);
   const subByBusiness = new Map(subs.map((s) => [String(s.business), s]));

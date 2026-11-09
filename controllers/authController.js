@@ -12,6 +12,7 @@ const { checkPassword } = require('../utils/passwordPolicy');
 const { isSuperAdminEmail } = require('../utils/superAdmin');
 const { DEFAULT_BUSINESS_TYPE, cleanBusinessType } = require('../utils/businessTypes');
 const { settingsOf } = require('../utils/settings');
+const { anonymiseUser, deleteBusiness } = require('../utils/accountDeletion');
 const { referrerForCode, attachReferral, linkForUser } = require('../utils/referrals');
 const Referrer = require('../models/Referrer');
 const { loginGuard, changePasswordGuard, clientIp, lockedMessage: tooManyAttempts } = require('../utils/rateLimit');
@@ -384,6 +385,57 @@ async function changePassword(req, res, next) {
   }
 }
 
+// POST /api/auth/me/delete   body: { password, confirm? }
+// Deleting your own account (the App Store and Google Play require this to be possible from inside the app).
+//   - a staff: their login is switched off and made anonymous; what they recorded stays with the business
+//   - the owner: the whole business is deleted (all records, pictures and logins), so they must also type DELETE
+async function deleteMyAccount(req, res, next) {
+  try {
+    const password = typeof req.body.password === 'string' ? req.body.password : '';
+    if (!password) throw httpError(400, 'Enter your password to confirm');
+    if (isSuperAdminEmail(req.user.email)) {
+      throw httpError(400, 'A LogBase super admin account cannot be deleted from the app. Remove it from SUPER_ADMIN_EMAILS on the server first.');
+    }
+    const isOwner = req.user.role === 'owner';
+    const confirm = typeof req.body.confirm === 'string' ? req.body.confirm.trim().toUpperCase() : '';
+    if (isOwner && confirm !== 'DELETE') throw httpError(400, 'Type DELETE to confirm that you want to delete the whole business');
+
+    // only a few tries at the password, like when changing it
+    const waitMs = changePasswordGuard.check(req.user._id);
+    if (waitMs > 0) {
+      res.set('Retry-After', String(Math.ceil(waitMs / 1000)));
+      return res.status(429).json({ message: tooManyAttempts(waitMs) });
+    }
+    const match = await bcrypt.compare(password, req.user.passwordHash);
+    if (!match) {
+      changePasswordGuard.fail(req.user._id);
+      throw httpError(400, 'Your password is not correct');
+    }
+    changePasswordGuard.success(req.user._id);
+
+    const { email, name, business: businessId } = req.user;
+    const business = await Business.findById(businessId).select('name').lean();
+    if (isOwner) {
+      await deleteBusiness(businessId);
+    } else {
+      logActivity(req, { action: 'staff.deleted_self', summary: `${name} deleted their own login.`, entityType: 'User', entityId: req.user._id });
+      await anonymiseUser(req.user);
+    }
+
+    // a goodbye email, if email is set up; it never stops the deletion
+    try {
+      if (mailer.isConfigured()) {
+        await mailer.sendEmail({ to: email, ...mailer.accountDeletedEmail({ name, businessName: business && business.name, wholeBusiness: isOwner }) });
+      }
+    } catch (err) {
+      console.error('Could not send the account deleted email:', err.message);
+    }
+    res.json({ message: isOwner ? 'Your business and all its data have been deleted' : 'Your login has been deleted' });
+  } catch (err) {
+    next(err);
+  }
+}
+
 // Profile pictures: "photo" (the round one) and "cover" (the wide one behind the top of the profile page).
 // Both work the same way. The upload to Cloudinary has already happened by the time a handler runs.
 //   - the administrator can set, replace or remove their own and any staff's
@@ -540,4 +592,5 @@ module.exports = {
   uploadStaffCover,
   deleteStaffCover,
   listTeam,
+  deleteMyAccount,
 };

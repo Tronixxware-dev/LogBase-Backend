@@ -18,6 +18,7 @@ const {
   uploadStaffCover,
   deleteStaffCover,
   listTeam,
+  deleteMyAccount,
 } = require('../controllers/authController');
 const { forgotPassword, resetPassword } = require('../controllers/passwordResetController');
 const { requestEmailChange, confirmEmailChange } = require('../controllers/emailChangeController');
@@ -37,6 +38,8 @@ router.post('/reset-password', rateLimit({ windowMs: 15 * 60 * 1000, max: 20 }),
 router.get('/me', requireAuth, getMe);
 router.patch('/me', requireAuth, updateMe);
 router.post('/change-password', requireAuth, changePassword);
+// deleting your own account (staff: their login; owner: the whole business)
+router.post('/me/delete', requireAuth, rateLimit({ windowMs: 15 * 60 * 1000, max: 10 }), deleteMyAccount);
 // Changing the login email: asked from the profile (password + a link to the new address), finished by opening that link
 router.post('/me/email', requireAuth, rateLimit({ windowMs: 15 * 60 * 1000, max: 10 }), requestEmailChange);
 router.post('/confirm-email', rateLimit({ windowMs: 15 * 60 * 1000, max: 20 }), confirmEmailChange);

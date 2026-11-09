@@ -52,6 +52,8 @@ const businessSchema = new mongoose.Schema(
     // Set by the LogBase super admin (see controllers/adminController.js). A suspended business cannot log in or use the API.
     suspendedAt: { type: Date },
     suspendedReason: { type: String, trim: true, maxlength: 300 },
+    // Set when the owner deleted the account from the app. What is left is an empty shell (see utils/accountDeletion.js).
+    deletedAt: { type: Date },
   },
   { timestamps: true }
 );

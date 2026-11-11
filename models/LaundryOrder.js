@@ -22,8 +22,8 @@ const lineSchema = new mongoose.Schema({
   colour: { type: String, trim: true, maxlength: 80 },
   // Stain / special care
   stain: { type: String, trim: true, maxlength: 120 },
-  // what is done to the piece: wash, wash & iron, iron only, dry clean
-  service: { type: String, enum: ['wash', 'wash_iron', 'iron', 'dry_clean'], default: 'wash' },
+  // what is done to the piece: wash, wash & iron, iron only, dry clean, starch, starch & iron
+  service: { type: String, enum: ['wash', 'wash_iron', 'iron', 'dry_clean', 'starch', 'starch_iron'], default: 'wash' },
   // price of one piece
   price: { type: Number, default: 0, min: 0 },
   dateIn: { type: Date },

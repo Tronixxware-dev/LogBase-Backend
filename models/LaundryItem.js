@@ -16,6 +16,8 @@ const laundryItemSchema = new mongoose.Schema(
       wash_iron: { type: Number, default: 0, min: 0 },
       iron: { type: Number, default: 0, min: 0 },
       dry_clean: { type: Number, default: 0, min: 0 },
+      starch: { type: Number, default: 0, min: 0 },
+      starch_iron: { type: Number, default: 0, min: 0 },
     },
     sortOrder: { type: Number, default: 0 },
   },

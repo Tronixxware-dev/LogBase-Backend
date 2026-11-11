@@ -45,6 +45,8 @@ const SERVICES = [
   { key: 'wash_iron', label: 'Wash & iron' },
   { key: 'iron', label: 'Iron only' },
   { key: 'dry_clean', label: 'Dry clean' },
+  { key: 'starch', label: 'Starch' },
+  { key: 'starch_iron', label: 'Starch & iron' },
 ];
 const SERVICE_KEYS = SERVICES.map((s) => s.key);
 const DEFAULT_EXPRESS_PERCENT = 50;
@@ -52,30 +54,30 @@ const MAX_EXPRESS_PERCENT = 300;
 const LIST_LIMIT = 300;
 const MAX_LINES = 60;
 
-// The standard list of clothing types (the rows of the paper log book). Prices are left for the owner to set.
+// The standard list of clothing types (the rows of the paper log book), in alphabetical order. Prices are left for the owner to set.
 const DEFAULT_ITEMS = [
-  'Native',
-  'Jean',
-  'Short Jean',
-  'Short',
-  'Round neck',
-  'Sweat shirt',
-  'Polo',
-  'Shirt',
-  'Short shirt',
-  'Cardigan',
   'Agbada',
-  'Suit',
-  'Gown',
-  'Jalabia',
-  'Socks',
-  'Cap',
-  'Head warmer',
-  'Face towel',
-  'Handkerchief',
-  'Duvet',
   'Bedspread',
+  'Cap',
+  'Cardigan',
   'Complete duvet',
+  'Duvet',
+  'Face towel',
+  'Gown',
+  'Handkerchief',
+  'Head warmer',
+  'Jalabia',
+  'Jean',
+  'Native',
+  'Polo',
+  'Round neck',
+  'Shirt',
+  'Short',
+  'Short Jean',
+  'Short shirt',
+  'Socks',
+  'Suit',
+  'Sweat shirt',
 ];
 
 const code = (order) => jobCode('L', order.number);
@@ -214,7 +216,7 @@ async function readLines(req, rawLines, defaults) {
     if (!Number.isInteger(quantity) || quantity < 1 || quantity > 1000) throw httpError(400, `${where}: the quantity must be a whole number of 1 or more`);
 
     const service = row.service === undefined || row.service === null || row.service === '' ? 'wash' : row.service;
-    if (!SERVICE_KEYS.includes(service)) throw httpError(400, `${where}: choose wash, wash & iron, iron only or dry clean`);
+    if (!SERVICE_KEYS.includes(service)) throw httpError(400, `${where}: choose wash, wash & iron, iron only, dry clean, starch or starch & iron`);
     const price = readMoney(row.price, `${where}: the price`, { fallback: priceFor(item, service) });
     const dateIn = parseDay(row.dateIn, `${where}: the date in`) || defaults.dateIn;
     const dateOut = parseDay(row.dateOut, `${where}: the date out`) || defaults.dateOut || undefined;
@@ -298,7 +300,7 @@ async function seedItemsIfNeeded(businessId) {
   }
 }
 
-// The prices for the other services, { wash_iron?, iron?, dry_clean? }. A service that is left out keeps its current price.
+// The prices for the other services, { wash_iron?, iron?, dry_clean?, starch?, starch_iron? }. A service that is left out keeps its current price.
 function readServicePrices(raw, current) {
   const out = {};
   for (const key of SERVICE_KEYS) {
@@ -313,7 +315,9 @@ function readServicePrices(raw, current) {
 async function listItems(req, res, next) {
   try {
     await seedItemsIfNeeded(req.businessId);
-    const items = await LaundryItem.find({ business: req.businessId }).sort({ sortOrder: 1, name: 1 });
+    const items = await LaundryItem.find({ business: req.businessId });
+    // always A to Z, whatever order the items were added in (case and accents ignored, "Short" before "Short Jean")
+    items.sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base', numeric: true }));
     res.json({ items, services: SERVICES });
   } catch (err) {
     next(err);

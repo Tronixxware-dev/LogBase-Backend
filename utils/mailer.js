@@ -6,6 +6,9 @@
 
 const { httpError } = require('./httpError');
 
+// Where the emails tell people to write for help. Set SUPPORT_EMAIL in the backend .env to change it.
+const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL || 'support@mylogbase.com';
+
 function isConfigured() {
   return Boolean(process.env.RESEND_API_KEY && process.env.MAIL_FROM);
 }
@@ -98,12 +101,12 @@ function emailChangeRequestedEmail({ name, newEmail }) {
 // Sent to the old and the new address once the login email has changed
 function emailChangedEmail({ name, oldEmail, newEmail }) {
   const hello = name ? `Hi ${name},` : 'Hi,';
-  const text = `${hello}\n\nThe login email of this LogBase account was changed from ${oldEmail} to ${newEmail}. Log in with ${newEmail} from now on (your password is the same).\nIf this was not you, contact tronixxware01@gmail.com right away.\n`;
+  const text = `${hello}\n\nThe login email of this LogBase account was changed from ${oldEmail} to ${newEmail}. Log in with ${newEmail} from now on (your password is the same).\nIf this was not you, contact ${SUPPORT_EMAIL} right away.\n`;
   const html = layout(
     'Your login email was changed',
     `<p style="margin:0 0 12px;font-size:14px;line-height:1.5">${escapeHtml(hello)}</p>
 <p style="margin:0 0 12px;font-size:14px;line-height:1.5">The login email of this LogBase account was changed from <strong>${escapeHtml(oldEmail)}</strong> to <strong>${escapeHtml(newEmail)}</strong>. Log in with <strong>${escapeHtml(newEmail)}</strong> from now on (your password is the same).</p>
-<p style="margin:0;font-size:12px;color:#6b7280;line-height:1.5">If this was not you, contact tronixxware01@gmail.com right away.</p>`
+<p style="margin:0;font-size:12px;color:#6b7280;line-height:1.5">If this was not you, contact ${SUPPORT_EMAIL} right away.</p>`
   );
   return { subject: 'Your LogBase login email was changed', html, text };
 }
@@ -114,13 +117,13 @@ function accountDeletedEmail({ name, businessName, wholeBusiness }) {
   const what = wholeBusiness
     ? `The LogBase account of ${businessName || 'your business'} and all its records, pictures and logins have been deleted.`
     : 'Your LogBase login has been deleted.';
-  const text = `${hello}\n\n${what}\nThis cannot be undone. Records of plan payments are kept only as far as the law and accounting require.\nIf this was not you, contact tronixxware01@gmail.com right away.\n`;
+  const text = `${hello}\n\n${what}\nThis cannot be undone. Records of plan payments are kept only as far as the law and accounting require.\nIf this was not you, contact ${SUPPORT_EMAIL} right away.\n`;
   const html = layout(
     'Your LogBase account was deleted',
     `<p style="margin:0 0 12px;font-size:14px;line-height:1.5">${escapeHtml(hello)}</p>
 <p style="margin:0 0 12px;font-size:14px;line-height:1.5">${escapeHtml(what)}</p>
 <p style="margin:0 0 12px;font-size:14px;line-height:1.5">This cannot be undone. Records of plan payments are kept only as far as the law and accounting require.</p>
-<p style="margin:0;font-size:12px;color:#6b7280;line-height:1.5">If this was not you, contact tronixxware01@gmail.com right away.</p>`
+<p style="margin:0;font-size:12px;color:#6b7280;line-height:1.5">If this was not you, contact ${SUPPORT_EMAIL} right away.</p>`
   );
   return { subject: 'Your LogBase account was deleted', html, text };
 }
@@ -129,14 +132,14 @@ function accountDeletedEmail({ name, businessName, wholeBusiness }) {
 function welcomeEmail({ name, businessName, trialDays, link }) {
   const hello = name ? `Hi ${name},` : 'Hi,';
   const biz = businessName ? ` for ${businessName}` : '';
-  const text = `${hello}\n\nWelcome to LogBase! Your account${biz} is ready, and your ${trialDays}-day free trial has started with every feature switched on.\n\nA good way to start: add your products, record a purchase and a sale, and see your stock update.\n\nOpen LogBase: ${link}\n\nNeed help? Write to tronixxware01@gmail.com.\n`;
+  const text = `${hello}\n\nWelcome to LogBase! Your account${biz} is ready, and your ${trialDays}-day free trial has started with every feature switched on.\n\nA good way to start: add your products, record a purchase and a sale, and see your stock update.\n\nOpen LogBase: ${link}\n\nNeed help? Write to ${SUPPORT_EMAIL}.\n`;
   const html = layout(
     'Welcome to LogBase',
     `<p style="margin:0 0 12px;font-size:14px;line-height:1.5">${escapeHtml(hello)}</p>
 <p style="margin:0 0 12px;font-size:14px;line-height:1.5">Your account${escapeHtml(biz)} is ready, and your <strong>${escapeHtml(String(trialDays))}-day free trial</strong> has started with every feature switched on.</p>
 <p style="margin:0 0 20px;font-size:14px;line-height:1.5">A good way to start: add your products, record a purchase and a sale, and see your stock update.</p>
 <p style="margin:0 0 20px"><a href="${escapeHtml(link)}" style="display:inline-block;background:#0d9488;color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;padding:11px 20px;border-radius:8px">Open LogBase</a></p>
-<p style="margin:0;font-size:12px;color:#6b7280;line-height:1.5">Need help? Write to tronixxware01@gmail.com.</p>`
+<p style="margin:0;font-size:12px;color:#6b7280;line-height:1.5">Need help? Write to ${SUPPORT_EMAIL}.</p>`
   );
   return { subject: 'Welcome to LogBase', html, text };
 }

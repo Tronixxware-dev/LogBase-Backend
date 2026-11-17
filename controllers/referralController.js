@@ -8,7 +8,7 @@ const { detail } = require('./adminReferralController');
 // GET /api/referral/me   ->   { referrer: null }  or  { referrer, referred, commissions, payouts }
 async function myReferrals(req, res, next) {
   try {
-    const mine = await Referrer.findOne({ user: req.user._id }).select('_id').lean();
+    const mine = await Referrer.findOne({ user: req.user._id, kind: { $ne: 'agent' } }).select('_id').lean();
     if (!mine) return res.json({ referrer: null });
     const full = await detail(mine._id);
     const { name, code, ratePercent, isActive, referred: referredCount, paying, earned, owed, paid, payments, createdAt } = full.referrer;

@@ -27,9 +27,11 @@ const importRoutes = require('./routes/importRoutes');
 const serialRoutes = require('./routes/serialRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const referralRoutes = require('./routes/referralRoutes');
+const agentRoutes = require('./routes/agentRoutes');
 const swapRoutes = require('./routes/swapRoutes');
 const repairRoutes = require('./routes/repairRoutes');
 const laundryRoutes = require('./routes/laundryRoutes');
+const collectionsRoutes = require('./routes/collectionsRoutes');
 const tailorRoutes = require('./routes/tailorRoutes');
 const workerRoutes = require('./routes/workerRoutes');
 const shopRoutes = require('./routes/shopRoutes');
@@ -73,6 +75,7 @@ app.use('/api/purchases', purchaseRoutes);
 app.use('/api/sales', saleRoutes);
 app.use('/api/swaps', swapRoutes); // item swaps: the list (a swap is recorded as a sale with a trade-in)
 app.use('/api/repairs', repairRoutes); // repair jobs
+app.use('/api/collections', collectionsRoutes); // money collected on laundry, tailor and repair orders, for any dates
 app.use('/api/laundry', laundryRoutes); // the laundry register and its list of clothing items
 app.use('/api/tailor', tailorRoutes); // tailor orders, the price list of garments and customers' measurements
 app.use('/api/workers', workerRoutes); // tailors, what they earned and were paid
@@ -90,6 +93,7 @@ app.use('/api/expenses', expenseRoutes);
 app.use('/api/import', importRoutes);
 app.use('/api/serials', serialRoutes);
 app.use('/api/referral', referralRoutes); // a referrer's own code, referrals and earnings
+app.use('/api/agent', agentRoutes); // a Sales Agent's own dashboard, earnings and daily log
 app.use('/api/admin', adminRoutes); // the LogBase super-admin panel (SUPER_ADMIN_EMAILS only)
 
 app.use(notFound);

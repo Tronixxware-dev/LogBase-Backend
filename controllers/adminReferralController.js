@@ -108,7 +108,7 @@ function present(r, t) {
 // GET /api/admin/referrers?search=
 async function listReferrers(req, res, next) {
   try {
-    const filter = {};
+    const filter = { kind: { $ne: 'agent' } }; // Sales Agents have their own page (adminAgentController)
     const search = text(req.query.search, 60);
     if (search) {
       const rx = { $regex: search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };

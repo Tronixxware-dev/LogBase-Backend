@@ -291,8 +291,15 @@ async function login(req, res, next) {
 async function getMe(req, res, next) {
   try {
     const user = sanitizeUser(req.user, await businessOf(req.user.business));
-    // the admin linked this account to a referral code: the menu then shows Referrals
-    user.isReferrer = Boolean(await Referrer.exists({ user: req.user._id })) || (await linkForUser(req.user).catch(() => false));
+    // the admin linked this account to a referral code: the menu then shows Referrals (or Sales agent, for a Sales Agent record)
+    let agent = Boolean(await Referrer.exists({ user: req.user._id, kind: 'agent' }));
+    let partner = Boolean(await Referrer.exists({ user: req.user._id, kind: { $ne: 'agent' } }));
+    if (!agent && !partner && (await linkForUser(req.user).catch(() => false))) {
+      agent = Boolean(await Referrer.exists({ user: req.user._id, kind: 'agent' }));
+      partner = !agent;
+    }
+    user.isAgent = agent;
+    user.isReferrer = partner;
     res.json({ user });
   } catch (err) {
     next(err);

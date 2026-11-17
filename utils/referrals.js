@@ -62,6 +62,11 @@ async function recordCommission(payment) {
   if (!referral) return null;
   const referrer = await Referrer.findById(referral.referrer).lean();
   if (!referrer) return null;
+  // a Sales Agent is paid by a different plan (bonuses and a % of renewals): see utils/agents.js
+  if (referrer.kind === 'agent') {
+    await require('./agents').recordAgentPayment(payment, referrer);
+    return null;
+  }
   const business = await Business.findById(payment.business).select('name').lean();
   const rate = Number(referrer.ratePercent) > 0 ? Number(referrer.ratePercent) : DEFAULT_RATE;
   try {

@@ -3,6 +3,7 @@ const { requireAuth, requireSuperAdmin } = require('../middleware/auth');
 const admin = require('../controllers/adminController');
 const adminSalesStock = require('../controllers/adminSalesStockController');
 const referrals = require('../controllers/adminReferralController');
+const agents = require('../controllers/adminAgentController');
 
 const router = express.Router();
 
@@ -23,6 +24,16 @@ router.post('/businesses/:id/end-plan', admin.endPlan);
 router.post('/users/:id/send-reset', admin.sendReset);
 router.patch('/users/:id', admin.setUserActive);
 router.post('/users/:id/email', admin.changeUserEmail);
+
+// Sales Agents (the fixed paths come before /agents/:id)
+router.get('/agents', agents.listAgents);
+router.post('/agents', agents.createAgent);
+router.get('/agents/weekly', agents.weekly);
+router.post('/agents/weekly', agents.creditWeekly);
+router.get('/agents/:id', agents.getAgent);
+router.patch('/agents/:id', agents.updateAgent);
+router.post('/agents/:id/payout', agents.payAgent);
+router.post('/agents/:id/adjust', agents.adjustAgent);
 
 router.get('/referrers', referrals.listReferrers);
 router.post('/referrers', referrals.createReferrer);

@@ -19,6 +19,13 @@ const referrerSchema = new mongoose.Schema(
     // set when the admin unlinks the login on purpose: it is then never linked again on its own (by email)
     noAutoLink: { type: Boolean, default: false },
     notes: { type: String, trim: true, maxlength: 300 },
+    // 'partner' (or empty): the 50% referral program. 'agent': a Sales Agent, paid by the plan in utils/agents.js
+    // (a New Shop Bonus, a % of renewals, weekly and monthly bonuses) instead of a share of every payment.
+    kind: { type: String, enum: ['partner', 'agent'], default: 'partner', index: true },
+    agentRank: { type: String, enum: ['agent', 'senior', 'lead'] },
+    agentNo: { type: String, trim: true, unique: true, sparse: true }, // the ID number printed on the agent's card, e.g. LB-SA-0001 (never two the same)
+    agentStartedAt: { type: Date },
+    agentResumedAt: { type: Date }, // set when a switched-off agent is switched back on
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   },
   { timestamps: true }

@@ -581,6 +581,8 @@ async function listTeam(req, res, next) {
 }
 
 module.exports = {
+  signToken,
+  sanitizeUser,
   registerBusiness,
   inviteStaff,
   listStaff,

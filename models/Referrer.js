@@ -22,6 +22,11 @@ const referrerSchema = new mongoose.Schema(
     // 'partner' (or empty): the 50% referral program. 'agent': a Sales Agent, paid by the plan in utils/agents.js
     // (a New Shop Bonus, a % of renewals, weekly and monthly bonuses) instead of a share of every payment.
     kind: { type: String, enum: ['partner', 'agent'], default: 'partner', index: true },
+    // Sales Agents: the e-mail invitation ("your application is accepted"). Only a fingerprint (sha256) of the link's token is kept.
+    inviteHash: { type: String, index: true },
+    inviteExpiresAt: { type: Date },
+    invitedAt: { type: Date },
+    onboardedAt: { type: Date },
     agentRank: { type: String, enum: ['agent', 'senior', 'lead'] },
     agentNo: { type: String, trim: true, unique: true, sparse: true }, // the ID number printed on the agent's card, e.g. LB-SA-0001 (never two the same)
     agentStartedAt: { type: Date },

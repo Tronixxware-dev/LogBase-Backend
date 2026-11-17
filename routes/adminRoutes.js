@@ -33,6 +33,7 @@ router.post('/agents/weekly', agents.creditWeekly);
 router.get('/agents/:id', agents.getAgent);
 router.patch('/agents/:id', agents.updateAgent);
 router.post('/agents/:id/payout', agents.payAgent);
+router.post('/agents/:id/invite', agents.inviteAgent);
 router.post('/agents/:id/adjust', agents.adjustAgent);
 
 router.get('/referrers', referrals.listReferrers);

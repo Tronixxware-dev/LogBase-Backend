@@ -144,6 +144,21 @@ function welcomeEmail({ name, businessName, trialDays, link }) {
   return { subject: 'Welcome to LogBase', html, text };
 }
 
+// Sent to a person the LogBase team has accepted as a Sales Agent: the link opens the page where they set up their own account
+function agentAcceptedEmail({ name, link }) {
+  const hello = name ? `Hi ${name},` : 'Hi,';
+  const text = `${hello}\n\nGood news: your application to become a LogBase Sales Agent has been accepted.\n\nSet up your account here (the link works for 7 days):\n${link}\n\nYou will choose your own password and then see your Sales Agent page: your referral code and link, your weekly targets and your earnings.\n\nQuestions? Write to ${SUPPORT_EMAIL}.\n`;
+  const html = layout(
+    'Your application was accepted',
+    `<p style="margin:0 0 12px;font-size:14px;line-height:1.5">${escapeHtml(hello)}</p>
+<p style="margin:0 0 12px;font-size:14px;line-height:1.5">Good news: your application to become a <strong>LogBase Sales Agent</strong> has been accepted.</p>
+<p style="margin:0 0 20px;font-size:14px;line-height:1.5">Set up your account to get your referral code and link, see your weekly targets and track your earnings. You choose your own password. The link works for 7 days.</p>
+<p style="margin:0 0 20px"><a href="${escapeHtml(link)}" style="display:inline-block;background:#0d9488;color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;padding:11px 20px;border-radius:8px">Set up my account</a></p>
+<p style="margin:0;font-size:12px;color:#6b7280;line-height:1.5">Questions? Write to ${SUPPORT_EMAIL}.</p>`
+  );
+  return { subject: 'Your LogBase Sales Agent application was accepted', html, text };
+}
+
 // Sent after the password was changed through the link, so the owner of the account knows
 function passwordChangedEmail({ name }) {
   const hello = name ? `Hi ${name},` : 'Hi,';
@@ -214,4 +229,4 @@ function renewalFailedEmail({ name, planName, amount, reason, willRetry, link })
   return { subject: willRetry ? 'Your LogBase plan could not be renewed' : 'Automatic renewal is off: please renew your plan', html, text };
 }
 
-module.exports = { isConfigured, sendEmail, welcomeEmail, resetPasswordEmail, passwordChangedEmail, confirmEmailEmail, emailChangeRequestedEmail, emailChangedEmail, accountDeletedEmail, announcementEmail, renewalSucceededEmail, renewalFailedEmail, escapeHtml };
+module.exports = { isConfigured, sendEmail, welcomeEmail, agentAcceptedEmail, resetPasswordEmail, passwordChangedEmail, confirmEmailEmail, emailChangeRequestedEmail, emailChangedEmail, accountDeletedEmail, announcementEmail, renewalSucceededEmail, renewalFailedEmail, escapeHtml };

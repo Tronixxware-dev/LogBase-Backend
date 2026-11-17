@@ -28,6 +28,15 @@ async function requireAuth(req, res, next) {
       });
     }
 
+    // A Sales Agent's own login belongs to no business: it may only open the Sales Agent pages, read its own account and change its password
+    if (user.role === 'agent') {
+      const base = req.baseUrl || '';
+      const allowed =
+        base === '/api/agent' ||
+        (base === '/api/auth' && ((req.method === 'GET' && req.path === '/me') || (req.method === 'POST' && req.path === '/change-password')));
+      if (!allowed) return res.status(403).json({ message: 'Not authorized' });
+    }
+
     req.user = user;
     req.businessId = user.business;
     next();

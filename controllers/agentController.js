@@ -4,7 +4,12 @@
 const Referrer = require('../models/Referrer');
 const AgentLog = require('../models/AgentLog');
 const { httpError } = require('../utils/httpError');
+const User = require('../models/User');
+const bcrypt = require('bcryptjs');
 const { agentSummary, leaderboard, loggableDay } = require('../utils/agents');
+const { agentForToken } = require('../utils/agentInvites');
+const { checkPassword } = require('../utils/passwordPolicy');
+const { signToken, sanitizeUser } = require('./authController');
 
 async function agentOf(user) {
   return Referrer.findOne({ user: user._id, kind: 'agent' }).lean();
@@ -48,4 +53,68 @@ async function saveLog(req, res, next) {
   }
 }
 
-module.exports = { myAgent, saveLog };
+const GONE = 'This link has expired or was already used. Ask the LogBase team to send you a new one.';
+
+// GET /api/agent/invite/:token   (no login: the link in the e-mail is the proof)
+async function inviteInfo(req, res, next) {
+  try {
+    const agent = await agentForToken(req.params.token);
+    if (!agent) throw httpError(404, GONE);
+    res.json({ name: agent.name, email: agent.email || '', phone: agent.phone || '' });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// POST /api/agent/invite/:token   body: { password, phone? }
+// The accepted agent chooses a password. That makes their agents-only login (no business, no orders: only the Sales Agent pages)
+// and signs them in. If the address already has a LogBase account, that account is linked instead and they sign in as usual.
+async function acceptInvite(req, res, next) {
+  try {
+    const agent = await agentForToken(req.params.token);
+    if (!agent) throw httpError(404, GONE);
+    if (!agent.email) throw httpError(400, 'This Sales Agent has no email address. Ask the LogBase team to add one.');
+
+    const existing = await User.findOne({ email: agent.email.toLowerCase() }).select('_id');
+    const password = typeof req.body.password === 'string' ? req.body.password : '';
+    if (!existing) {
+      const weak = checkPassword(password, { email: agent.email, name: agent.name });
+      if (weak) throw httpError(400, weak);
+    }
+
+    // the link works once: take it first, so two taps at the same moment cannot make two accounts
+    const claimed = await Referrer.findOneAndUpdate(
+      { _id: agent._id, inviteHash: agent.inviteHash },
+      { $unset: { inviteHash: '', inviteExpiresAt: '' }, $set: { onboardedAt: new Date() } }
+    );
+    if (!claimed) throw httpError(404, GONE);
+
+    try {
+      if (existing) {
+        await Referrer.updateOne({ _id: agent._id }, { $set: { user: existing._id } });
+        return res.json({ existing: true, message: 'You already have a LogBase account with this email. Log in with it and open "Sales agent" in the menu.' });
+      }
+      const phone = typeof req.body.phone === 'string' ? req.body.phone.replace(/\s+/g, ' ').trim().slice(0, 30) : '';
+      const user = await User.create({
+        name: agent.name,
+        email: agent.email.toLowerCase(),
+        passwordHash: await bcrypt.hash(password, 10),
+        role: 'agent',
+        phone: phone || agent.phone || undefined,
+      });
+      await Referrer.updateOne({ _id: agent._id }, { $set: { user: user._id, ...(phone && !agent.phone ? { phone } : {}) } });
+      const out = sanitizeUser(user, null);
+      out.isAgent = true;
+      out.isReferrer = false;
+      return res.json({ token: signToken(user), user: out });
+    } catch (err) {
+      // nothing was made: give the link back so the agent can try again
+      await Referrer.updateOne({ _id: agent._id }, { $set: { inviteHash: agent.inviteHash, inviteExpiresAt: agent.inviteExpiresAt }, $unset: { onboardedAt: '' } }).catch(() => {});
+      throw err;
+    }
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { myAgent, saveLog, inviteInfo, acceptInvite };

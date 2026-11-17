@@ -2,11 +2,12 @@ const mongoose = require('mongoose');
 
 const userSchema = new mongoose.Schema(
   {
-    business: { type: mongoose.Schema.Types.ObjectId, ref: 'Business', required: true, index: true },
+    // (a Sales Agent's own login, role 'agent', belongs to no business: it only opens the Sales Agent pages)
+    business: { type: mongoose.Schema.Types.ObjectId, ref: 'Business', required() { return this.role !== 'agent'; }, index: true },
     name: { type: String, required: true, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     passwordHash: { type: String, required: true },
-    role: { type: String, enum: ['owner', 'staff'], default: 'staff' },
+    role: { type: String, enum: ['owner', 'staff', 'agent'], default: 'staff' },
     // A staff's label (e.g. "Cashier"), shown in the Staffs list. Only for display.
     jobTitle: { type: String, trim: true, maxlength: 40 },
     // What a staff may do (see utils/permissions.js). Left unset for the owner (who may do everything) and for

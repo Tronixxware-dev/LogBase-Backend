@@ -13,6 +13,7 @@ const User = require('../models/User');
 const AdminLog = require('../models/AdminLog');
 const { httpError } = require('../utils/httpError');
 const { normalizeCode, freshCode, autoLinkByEmail } = require('../utils/referrals');
+const { issueInvite } = require('../utils/agentInvites');
 const { RANKS, RANK_KEYS, WEEKLY, syncAgent, agentSummary, weekReport, creditWeek, HOLD_DAYS, payableOn, isOnHold, weekIsOver, mondayOf, dayOf, naira } = require('../utils/agents');
 
 const text = (value, max) => (typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, max) : '');
@@ -108,6 +109,9 @@ function present(a, t) {
     rate: rank.rate,
     isActive: a.isActive,
     linked: Boolean(a.user),
+    // active: has an account · invited: the e-mail link is waiting · expired: the link ran out (send a new one) · none: no invitation yet
+    inviteStatus: a.user ? 'active' : a.inviteHash && a.inviteExpiresAt && new Date(a.inviteExpiresAt) > new Date() ? 'invited' : a.invitedAt ? 'expired' : 'none',
+    invitedAt: a.invitedAt || null,
     notes: a.notes || '',
     startedAt: a.agentStartedAt || a.createdAt,
     ...t,
@@ -158,6 +162,8 @@ async function createAgent(req, res, next) {
       code = await freshCode();
     }
     const linked = await readLinkedUser(req.body.userId);
+    // the acceptance e-mail with the sign-up link goes to this address, so it is needed (unless an existing account is linked)
+    if (!linked && !email) throw httpError(400, "Enter the Sales Agent's email address: the acceptance email with the sign-up link is sent to it");
     let agent;
     for (let attempt = 0; attempt < 4; attempt += 1) {
       try {
@@ -185,11 +191,31 @@ async function createAgent(req, res, next) {
       }
     }
     if (!linked && email) await autoLinkByEmail(agent.toObject()).catch((e) => console.error('AUTOLINK', e.message));
-    const made = (await Referrer.findById(agent._id).lean()) || agent.toObject();
-    await logAdmin(req, { action: 'agent.create', summary: `Added Sales Agent ${name} (${made.agentNo}, code ${code})`, meta: { code, agentNo: made.agentNo } });
-    res.status(201).json({ agent: present(made, { referred: 0, activated: 0, earned: 0, owed: 0, paid: 0 }) });
+    let made = (await Referrer.findById(agent._id).lean()) || agent.toObject();
+    // not linked to an account yet: send the "application accepted" e-mail with the link where they set up their own agents-only login
+    const invite = made.user ? null : await issueInvite(made._id).catch((e) => {
+      console.error('AGENT INVITE', e.message);
+      return null;
+    });
+    if (invite) made = (await Referrer.findById(agent._id).lean()) || made;
+    await logAdmin(req, { action: 'agent.create', summary: `Added Sales Agent ${name} (${made.agentNo}, code ${code})${invite && invite.sent ? ' and sent the acceptance email' : ''}`, meta: { code, agentNo: made.agentNo } });
+    res.status(201).json({ agent: present(made, { referred: 0, activated: 0, earned: 0, owed: 0, paid: 0 }), invite: invite ? { sent: invite.sent, reason: invite.reason, link: invite.link } : null });
   } catch (err) {
     if (err && err.code === 11000) return next(httpError(409, 'That code is already used. Try again.'));
+    next(err);
+  }
+}
+
+// POST /api/admin/agents/:id/invite   Sends the acceptance e-mail again (a new link; the old one stops working)
+async function inviteAgent(req, res, next) {
+  try {
+    const agent = await findAgent(req.params.id);
+    if (agent.user) throw httpError(400, 'This Sales Agent already has an account');
+    if (!agent.email) throw httpError(400, 'Add an email address for this Sales Agent first');
+    const invite = await issueInvite(agent._id);
+    await logAdmin(req, { action: 'agent.invite', summary: `${invite && invite.sent ? 'Sent' : 'Made'} a new sign-up link for Sales Agent ${agent.name} (${agent.agentNo})`, meta: { code: agent.code } });
+    res.json({ invite: invite ? { sent: invite.sent, reason: invite.reason, link: invite.link } : null, ...(await detail(agent)) });
+  } catch (err) {
     next(err);
   }
 }
@@ -356,4 +382,4 @@ async function creditWeekly(req, res, next) {
   }
 }
 
-module.exports = { listAgents, createAgent, getAgent, updateAgent, payAgent, adjustAgent, weekly, creditWeekly };
+module.exports = { listAgents, createAgent, getAgent, updateAgent, payAgent, adjustAgent, inviteAgent, weekly, creditWeekly };

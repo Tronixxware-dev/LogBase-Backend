@@ -17,7 +17,7 @@ function escapeHtml(text) {
   return String(text).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-async function sendEmail({ to, subject, html, text }) {
+async function sendEmail({ to, subject, html, text, replyTo }) {
   if (!isConfigured()) throw httpError(503, 'Email sending is not set up.');
 
   let res;
@@ -25,7 +25,7 @@ async function sendEmail({ to, subject, html, text }) {
     res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: process.env.MAIL_FROM, to: [to], subject, html, text }),
+      body: JSON.stringify({ from: process.env.MAIL_FROM, to: [to], subject, html, text, ...(replyTo ? { reply_to: replyTo } : {}) }),
       signal: AbortSignal.timeout(15000),
     });
   } catch {
@@ -189,6 +189,27 @@ ${paragraphs.map((p) => `<p style="margin:0 0 12px;font-size:14px;line-height:1.
   return { subject, html, text };
 }
 
+// A message from a Sales Agent to a business they registered (customer service). The text is plain: blank lines become
+// paragraphs and nothing the agent types can inject HTML. Replies go to the agent (reply-to), and the footer says who wrote it.
+function agentMessageEmail({ ownerName, agentName, agentPhone, subject, message }) {
+  const hello = ownerName ? `Hi ${ownerName},` : 'Hi,';
+  const paragraphs = String(message || '')
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const signoff = `${agentName}, your LogBase Sales Agent${agentPhone ? ` · ${agentPhone}` : ''}`;
+  const text = `${hello}\n\n${paragraphs.join('\n\n')}\n\n${signoff}\n\nJust reply to this email to reach ${agentName}. LogBase: https://mylogbase.com\n`;
+  const html = layout(
+    subject,
+    `<p style="margin:0 0 12px;font-size:14px;line-height:1.5">${escapeHtml(hello)}</p>
+${paragraphs.map((p) => `<p style="margin:0 0 12px;font-size:14px;line-height:1.6">${escapeHtml(p).replace(/\n/g, '<br>')}</p>`).join('\n')}
+<p style="margin:18px 0 4px;font-size:14px;font-weight:600;color:#111827">${escapeHtml(agentName)}</p>
+<p style="margin:0 0 16px;font-size:12px;color:#6b7280;line-height:1.5">Your LogBase Sales Agent${agentPhone ? ` · ${escapeHtml(agentPhone)}` : ''}</p>
+<p style="margin:0;font-size:12px;color:#6b7280;line-height:1.5">Just reply to this email to reach ${escapeHtml(agentName)}.</p>`
+  );
+  return { subject, html, text };
+}
+
 function money(naira) {
   return `₦${Number(naira).toLocaleString('en-NG', { maximumFractionDigits: 2 })}`;
 }
@@ -229,4 +250,4 @@ function renewalFailedEmail({ name, planName, amount, reason, willRetry, link })
   return { subject: willRetry ? 'Your LogBase plan could not be renewed' : 'Automatic renewal is off: please renew your plan', html, text };
 }
 
-module.exports = { isConfigured, sendEmail, welcomeEmail, agentAcceptedEmail, resetPasswordEmail, passwordChangedEmail, confirmEmailEmail, emailChangeRequestedEmail, emailChangedEmail, accountDeletedEmail, announcementEmail, renewalSucceededEmail, renewalFailedEmail, escapeHtml };
+module.exports = { isConfigured, sendEmail, welcomeEmail, agentAcceptedEmail, resetPasswordEmail, passwordChangedEmail, confirmEmailEmail, emailChangeRequestedEmail, emailChangedEmail, accountDeletedEmail, announcementEmail, agentMessageEmail, renewalSucceededEmail, renewalFailedEmail, escapeHtml };

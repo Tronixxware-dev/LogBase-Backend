@@ -348,6 +348,10 @@ async function updateMe(req, res, next) {
     if (newBusinessType) await Business.findByIdAndUpdate(me.business, { businessType: newBusinessType });
 
     await me.save();
+    // a Sales Agent's own name and phone are also what the agent record (and their emails to shops) shows
+    if (me.role === 'agent' && (name !== undefined || phone !== undefined)) {
+      await Referrer.updateOne({ user: me._id, kind: 'agent' }, { $set: { ...(name !== undefined ? { name: me.name } : {}), ...(phone !== undefined ? { phone: me.phone } : {}) } }).catch(() => {});
+    }
     res.json({ user: sanitizeUser(me, await businessOf(me.business)) });
   } catch (err) {
     next(err);
@@ -460,7 +464,7 @@ function lockedMessage(field) {
 // Runs BEFORE the upload, so a staff who is locked out never sends a file to Cloudinary at all.
 function lockedForStaff(field) {
   return (req, res, next) => {
-    if (req.user.role !== 'owner' && hasPicture(req.user, field)) {
+    if (req.user.role === 'staff' && hasPicture(req.user, field)) {
       return res.status(403).json({ message: lockedMessage(field) });
     }
     next();
@@ -492,7 +496,7 @@ function uploadMine(field) {
   return async (req, res, next) => {
     try {
       // checked again after the upload: two quick requests could both have passed the check before it
-      if (req.user.role !== 'owner' && hasPicture(req.user, field)) {
+      if (req.user.role === 'staff' && hasPicture(req.user, field)) {
         if (req.file) await cloudinary.uploader.destroy(req.file.filename).catch(() => {});
         throw httpError(403, lockedMessage(field));
       }
@@ -509,7 +513,7 @@ function uploadMine(field) {
 function deleteMine(field) {
   return async (req, res, next) => {
     try {
-      if (req.user.role !== 'owner') throw httpError(403, lockedMessage(field));
+      if (req.user.role === 'staff') throw httpError(403, lockedMessage(field));
       await clearPicture(req.user, field);
       res.json({ user: sanitizeUser(req.user, await businessOf(req.user.business)) });
     } catch (err) {

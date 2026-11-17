@@ -33,7 +33,7 @@ const WAT = HOUR; // Lagos time is UTC+1 all year
 // rate = the agent's % of each renewal payment
 const RANKS = {
   agent: { key: 'agent', name: 'Sales Agent', rate: 10 },
-  senior: { key: 'senior', name: 'Senior Sales Agent', rate: 12 },
+  senior: { key: 'senior', name: 'Senior Sales Agent', rate: 20 },
   lead: { key: 'lead', name: 'Team Lead', rate: 15 },
 };
 const RANK_KEYS = Object.keys(RANKS);

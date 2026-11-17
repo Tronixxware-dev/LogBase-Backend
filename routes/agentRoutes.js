@@ -1,5 +1,5 @@
 const express = require('express');
-const { myAgent, saveLog, inviteInfo, acceptInvite } = require('../controllers/agentController');
+const { myAgent, saveLog, inviteInfo, acceptInvite, mailHistory, mailShops } = require('../controllers/agentController');
 const { requireAuth } = require('../middleware/auth');
 const { rateLimit } = require('../utils/rateLimit');
 
@@ -12,5 +12,9 @@ router.post('/invite/:token', rateLimit({ windowMs: 15 * 60 * 1000, max: 20 }), 
 // Any signed-in person may ask; only someone the admin linked to a Sales Agent record gets anything back.
 router.get('/me', requireAuth, myAgent);
 router.put('/log', requireAuth, saveLog);
+
+// Customer service: write to the businesses you registered (see agentController)
+router.get('/mail', requireAuth, mailHistory);
+router.post('/mail', requireAuth, rateLimit({ windowMs: 15 * 60 * 1000, max: 15 }), mailShops);
 
 module.exports = router;

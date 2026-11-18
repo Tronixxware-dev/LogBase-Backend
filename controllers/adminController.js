@@ -792,7 +792,7 @@ async function recipientsFor(req) {
 
   if (audience === 'business') {
     checkId(req.body.businessId, 'business id');
-    const owners = await User.find({ business: req.body.businessId, role: 'owner', isActive: true }).select('name email').lean();
+    const owners = await User.find({ business: String(req.body.businessId || ''), role: 'owner', isActive: true }).select('name email').lean();
     if (owners.length === 0) throw httpError(404, 'That business has no active owner');
     return owners.map((o) => ({ name: o.name, email: o.email }));
   }

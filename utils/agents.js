@@ -34,7 +34,7 @@ const WAT = HOUR; // Lagos time is UTC+1 all year
 const RANKS = {
   agent: { key: 'agent', name: 'Sales Agent', rate: 10 },
   senior: { key: 'senior', name: 'Senior Sales Agent', rate: 20 },
-  lead: { key: 'lead', name: 'Team Lead', rate: 15 },
+  lead: { key: 'lead', name: 'Team Lead', rate: 30 },
 };
 const RANK_KEYS = Object.keys(RANKS);
 

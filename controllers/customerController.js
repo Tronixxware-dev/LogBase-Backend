@@ -9,6 +9,7 @@ const { withSellerPhotos } = require('../utils/sellerPhotos');
 const { httpError } = require('../utils/httpError');
 const { normalizePhone, phoneKey } = require('../utils/phone');
 const { customerForUser, customersForUser } = require('../utils/staffView');
+const { escapeRegex } = require('../utils/jobHelpers');
 const { can } = require('../utils/permissions');
 const { applyWorkingShop, shopForNewRecord } = require('../utils/shopStock');
 
@@ -40,7 +41,7 @@ async function listCustomers(req, res, next) {
     const filter = { business: req.businessId };
     // the customers of the store being worked in
     await applyWorkingShop(req, filter);
-    if (search) filter.name = { $regex: search, $options: 'i' };
+    if (typeof search === 'string' && search.trim()) filter.name = { $regex: escapeRegex(search.trim()), $options: 'i' };
 
     const customers = await Customer.find(filter).sort({ name: 1 });
     res.json({ customers: customersForUser(req, customers) });

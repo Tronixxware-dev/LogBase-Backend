@@ -38,6 +38,13 @@ const shopRoutes = require('./routes/shopRoutes');
 const transferRoutes = require('./routes/transferRoutes');
 const { startRenewalScheduler, stopRenewalScheduler } = require('./utils/renewals');
 
+// The login tokens are only as safe as this secret: a short one can be guessed offline from a single token.
+if (!process.env.JWT_SECRET) {
+  console.error('JWT_SECRET is not set: nobody can log in. Set a long random value on the server.');
+} else if (process.env.JWT_SECRET.length < 32) {
+  console.warn('JWT_SECRET is shorter than 32 characters. Replace it with a long random value (for example 64 random characters).');
+}
+
 connectDB();
 
 const app = express();

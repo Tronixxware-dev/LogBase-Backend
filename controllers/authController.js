@@ -22,9 +22,13 @@ const {
   DEFAULT_STAFF_PERMISSIONS,
 } = require('../utils/permissions');
 
+// compared against when an email has no account, so a missing account takes as long to answer as a wrong password
+const DUMMY_HASH = bcrypt.hashSync('logbase-no-such-account', 10);
+
 function signToken(user) {
   return jwt.sign({ userId: user._id, businessId: user.business }, process.env.JWT_SECRET, {
     expiresIn: '30d',
+    algorithm: 'HS256',
   });
 }
 
@@ -66,6 +70,9 @@ async function registerBusiness(req, res, next) {
     const { businessName, businessEmail, ownerName, ownerEmail, password } = req.body;
 
     if (!businessName || !businessEmail || !ownerName || !ownerEmail || !password) {
+      return res.status(400).json({ message: 'Missing required fields' });
+    }
+    if ([businessName, businessEmail, ownerName, ownerEmail, password].some((v) => typeof v !== 'string')) {
       return res.status(400).json({ message: 'Missing required fields' });
     }
     const weak = checkPassword(password, { email: String(ownerEmail), name: String(ownerName) });
@@ -246,7 +253,7 @@ async function login(req, res, next) {
 
     const user = await User.findOne({ email: cleanEmail });
     // an email with no account is counted like a wrong password, so the limits reveal nothing
-    const match = user ? await bcrypt.compare(password, user.passwordHash) : false;
+    const match = await bcrypt.compare(password, user ? user.passwordHash : DUMMY_HASH).then((ok) => Boolean(user) && ok);
     if (!match) {
       const result = loginGuard.fail(cleanEmail, ip);
       if (result.lockedNow && user && user.isActive) {

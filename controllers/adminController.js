@@ -287,9 +287,16 @@ async function listBusinesses(req, res, next) {
   try {
     const search = cleanText(req.query.search, 80);
     const stateFilter = STATE_FILTERS.includes(req.query.state) ? req.query.state : '';
-    const sort = req.query.sort === 'name' ? 'name' : req.query.sort === 'oldest' ? 'oldest' : 'newest';
+    const sort = ['name', 'oldest', 'sales', 'products'].includes(req.query.sort) ? req.query.sort : 'newest';
+    const activeWeek = req.query.active === 'week';
 
     let states = await loadBusinessStates();
+
+    // Only the businesses that did something in the last 7 days (the same count as "Active this week" on the overview)
+    if (activeWeek) {
+      const ids = new Set((await AuditLog.distinct('business', { createdAt: { $gte: new Date(Date.now() - 7 * DAY) } })).map(String));
+      states = states.filter((st) => ids.has(String(st.business._id)));
+    }
 
     if (search) {
       const rx = new RegExp(escapeRegex(search), 'i');
@@ -301,7 +308,18 @@ async function listBusinesses(req, res, next) {
       states = states.filter((st) => (stateFilter === 'suspended' ? st.business.isActive === false : st.business.isActive !== false && st.ent.state === stateFilter));
     }
 
+    // To list the busiest first we need every business's totals, not just the page being shown
+    let totalsBy = null;
+    if (sort === 'sales' || sort === 'products') {
+      const rows = await (sort === 'sales' ? Sale : Product).aggregate([{ $group: { _id: '$business', count: { $sum: 1 } } }]);
+      totalsBy = new Map(rows.map((r) => [String(r._id), r.count]));
+    }
+
     states.sort((a, b) => {
+      if (totalsBy) {
+        const diff = (totalsBy.get(String(b.business._id)) || 0) - (totalsBy.get(String(a.business._id)) || 0);
+        return diff || new Date(b.business.createdAt) - new Date(a.business.createdAt);
+      }
       if (sort === 'name') return a.business.name.localeCompare(b.business.name);
       const diff = new Date(a.business.createdAt) - new Date(b.business.createdAt);
       return sort === 'oldest' ? diff : -diff;
@@ -351,6 +369,41 @@ async function listBusinesses(req, res, next) {
       };
     });
 
+    res.json({ items, total, page, pages: Math.max(Math.ceil(total / size), 1), size });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* GET /api/admin/users   everyone with a login (the "People with logins" card) */
+/* ------------------------------------------------------------------ */
+
+async function listUsers(req, res, next) {
+  try {
+    const filter = {};
+    if (['owner', 'staff', 'agent'].includes(req.query.role)) filter.role = req.query.role;
+    const search = cleanText(req.query.search, 80);
+    if (search) {
+      const rx = new RegExp(escapeRegex(search), 'i');
+      const matchingBusinesses = await Business.find({ name: rx }).select('_id').lean();
+      filter.$or = [{ name: rx }, { email: rx }, { business: { $in: matchingBusinesses.map((b) => b._id) } }];
+    }
+    const { page, size, skip } = pageOf(req);
+    const [total, rows] = await Promise.all([
+      User.countDocuments(filter),
+      User.find(filter).sort({ createdAt: -1, _id: -1 }).skip(skip).limit(size).select('name email role jobTitle isActive createdAt business').populate('business', 'name').lean(),
+    ]);
+    const items = rows.map((u) => ({
+      _id: u._id,
+      name: u.name,
+      email: u.email,
+      role: u.role,
+      jobTitle: u.jobTitle || '',
+      isActive: u.isActive !== false,
+      createdAt: u.createdAt,
+      business: u.business ? { _id: u.business._id, name: u.business.name } : null,
+    }));
     res.json({ items, total, page, pages: Math.max(Math.ceil(total / size), 1), size });
   } catch (err) {
     next(err);
@@ -863,6 +916,7 @@ function audiences(req, res) {
 
 module.exports = {
   overview,
+  listUsers,
   listBusinesses,
   getBusiness,
   businessData,

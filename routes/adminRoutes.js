@@ -21,6 +21,7 @@ router.post('/businesses/:id/extend-trial', admin.extendTrial);
 router.post('/businesses/:id/grant-plan', admin.grantPlan);
 router.post('/businesses/:id/end-plan', admin.endPlan);
 
+router.get('/users', admin.listUsers);
 router.post('/users/:id/send-reset', admin.sendReset);
 router.patch('/users/:id', admin.setUserActive);
 router.post('/users/:id/email', admin.changeUserEmail);

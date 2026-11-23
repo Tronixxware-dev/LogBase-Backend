@@ -413,9 +413,10 @@ async function agentSummary(agent, { sync = true } = {}) {
     const paying = Boolean(sub && sub.status === 'active' && sub.currentPeriodEnd && new Date(sub.currentPeriodEnd) > now);
     let state = 'not_paid';
     let progress = null;
-    // a shop that has not paid: is it still on its free trial, and how long is left? (for the agent's follow-up list)
+    // a shop that has not paid: is it still on a free trial it was given before trials were removed, and how long is left?
+    // (for the agent's follow-up list; a new business is on the Free plan, stored as sub.plan 'free', and has no trial)
     let trial = null;
-    if (!first && sub && sub.status === 'trialing' && sub.trialEndsAt) {
+    if (!first && sub && sub.status === 'trialing' && sub.trialEndsAt && sub.plan !== 'free') {
       const left = Math.ceil((new Date(sub.trialEndsAt).getTime() - now.getTime()) / DAY);
       trial = { endsAt: sub.trialEndsAt, daysLeft: left, ended: left <= 0 };
     }

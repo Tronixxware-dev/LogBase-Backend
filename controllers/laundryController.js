@@ -646,7 +646,7 @@ async function createOrder(req, res, next) {
       }
     }
 
-    // a laundromat whose free trial is over (14 days or 50 orders) or whose plan has ended cannot take NEW orders
+    // a laundromat on the Free plan (or whose paid plan has ended) can take only a limited number of NEW orders each month
     // (an order the app is only replaying, found above by its clientId, is never stopped)
     await assertCanAddOrder(req.businessId);
 

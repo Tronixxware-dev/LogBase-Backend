@@ -4,7 +4,6 @@ const Business = require('../models/Business');
 const User = require('../models/User');
 const { cloudinary } = require('../config/cloudinary');
 const mailer = require('../utils/mailer');
-const { TRIAL_DAYS } = require('../config/plans');
 const { httpError } = require('../utils/httpError');
 const { logActivity } = require('../utils/audit');
 const { assertCanAddStaff } = require('../utils/billing');
@@ -112,7 +111,7 @@ async function registerBusiness(req, res, next) {
     if (mailer.isConfigured()) {
       const link = `${(process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/+$/, '')}/dashboard`;
       mailer
-        .sendEmail({ to: owner.email, ...mailer.welcomeEmail({ name: owner.name, businessName: business.name, trialDays: TRIAL_DAYS, link }) })
+        .sendEmail({ to: owner.email, ...mailer.welcomeEmail({ name: owner.name, businessName: business.name, link }) })
         .catch((err) => console.error('Welcome email failed:', err.message));
     }
 

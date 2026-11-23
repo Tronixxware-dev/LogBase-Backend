@@ -5,6 +5,11 @@
 // A limit of null means "no limit".
 // limits.stocks is the number of UNITS the business may hold in stock at one time (every unit of every product).
 // Selling stock makes room again; the limit only stops more stock being added (see assertRoomForUnits in utils/billing.js).
+// A laundromat or a tailor holds no stock, so the Free plan's stock limit means nothing to it. On the Free plan (or when a
+// paid plan has run out) it may take this many orders in each calendar month; Starter and Business have no order limit.
+// Change the number here and nowhere else.
+const FREE_MONTHLY_ORDERS = 30;
+
 const PLANS = {
   free: {
     key: 'free',
@@ -12,7 +17,8 @@ const PLANS = {
     tagline: 'To try LogBase for yourself',
     monthly: 0,
     yearly: 0,
-    limits: { staff: 0, stocks: 50 },
+    // orders: only laundromats and tailors use it (they hold no stock); every other business uses stocks
+    limits: { staff: 0, stocks: 30, orders: FREE_MONTHLY_ORDERS },
     features: { activityLog: false },
   },
   starter: {
@@ -51,12 +57,17 @@ const PLAN_ORDER = ['free', 'starter', 'business'];
 const PAID_PLANS = ['starter', 'business'];
 const INTERVALS = ['monthly', 'yearly'];
 
-// Every new business (and every business that existed before billing) starts with this plan for this long.
+// THERE IS NO FREE TRIAL ANY MORE. A business created on or after NO_TRIAL_FROM starts on the Free plan and upgrades when it
+// wants more. TRIAL_PLAN and TRIAL_DAYS stay only for the businesses that already had a trial (or were created before
+// NO_TRIAL_FROM and have not opened billing yet): they keep the 14 days of Business they were promised.
+// To set the moment yourself, put NO_TRIAL_FROM=2026-11-24T00:00:00Z (any ISO date) in the server's environment.
 const TRIAL_PLAN = 'business';
 const TRIAL_DAYS = 14;
+const parsedNoTrialFrom = new Date(process.env.NO_TRIAL_FROM || '2026-11-23T07:00:00Z');
+const NO_TRIAL_FROM = Number.isNaN(parsedNoTrialFrom.getTime()) ? new Date('2026-11-23T07:00:00Z') : parsedNoTrialFrom;
 
-// A laundromat's free trial also ends once it has taken this many laundry orders (whichever comes first, 14 days or this
-// many orders). Starter and Business have no order limit. See orderUsage / assertCanAddOrder in utils/billing.js.
+// For a laundromat that is still on a trial it already had: the trial also ends once it has taken this many laundry orders
+// (whichever comes first, 14 days or this many orders). See orderUsage / assertCanAddOrder in utils/billing.js.
 const LAUNDRY_TRIAL_ORDERS = 50;
 
 const CURRENCY = 'NGN';
@@ -67,4 +78,4 @@ function priceOf(plan, interval) {
   return p[interval];
 }
 
-module.exports = { PLANS, PLAN_ORDER, PAID_PLANS, INTERVALS, TRIAL_PLAN, TRIAL_DAYS, LAUNDRY_TRIAL_ORDERS, CURRENCY, priceOf };
+module.exports = { PLANS, PLAN_ORDER, PAID_PLANS, INTERVALS, TRIAL_PLAN, TRIAL_DAYS, NO_TRIAL_FROM, LAUNDRY_TRIAL_ORDERS, FREE_MONTHLY_ORDERS, CURRENCY, priceOf };

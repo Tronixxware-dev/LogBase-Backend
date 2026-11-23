@@ -5,7 +5,8 @@ const mongoose = require('mongoose');
 const subscriptionSchema = new mongoose.Schema(
   {
     business: { type: mongoose.Schema.Types.ObjectId, ref: 'Business', required: true, unique: true },
-    // 'trialing': on the free trial (until trialEndsAt). 'active': has paid (until currentPeriodEnd).
+    // 'trialing': on a free trial that was given before trials were removed (until trialEndsAt). 'active': has paid (until currentPeriodEnd).
+    // A business on the Free plan is 'trialing' with a trialEndsAt that has already passed (new businesses are created like that).
     status: { type: String, enum: ['trialing', 'active'], default: 'trialing' },
     plan: { type: String, enum: ['free', 'starter', 'business'], default: 'business' },
     interval: { type: String, enum: ['monthly', 'yearly'], default: 'monthly' },

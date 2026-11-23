@@ -23,7 +23,7 @@ const { httpError } = require('../utils/httpError');
 const { hashToken, TOKEN_MINUTES } = require('./passwordResetController');
 const { isSuperAdminEmail } = require('../utils/superAdmin');
 const { cleanEmail, assertCanUseEmail, applyEmailChange } = require('../utils/emailChange');
-const { addDays, entitlementsFor, getSubscription, orderUsage } = require('../utils/billing');
+const { addDays, entitlementsFor, getSubscription, orderUsage, startsOnFree } = require('../utils/billing');
 const { PLANS, PAID_PLANS, INTERVALS, TRIAL_PLAN, TRIAL_DAYS, LAUNDRY_TRIAL_ORDERS, priceOf } = require('../config/plans');
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -72,15 +72,16 @@ async function logAdmin(req, { action, summary, business, meta }) {
   }
 }
 
-// A business that has no subscription record yet is on its free trial that started the day it signed up
-// (the record itself is only created the first time that business opens the app).
+// A business that has no subscription record yet: a new one is on the Free plan, and one that signed up before trials were removed
+// is on the free trial that started the day it signed up (the record itself is only created the first time that business opens the app).
 function subscriptionOf(business, sub) {
   if (sub) return sub;
+  const free = startsOnFree(business);
   return {
     status: 'trialing',
-    plan: TRIAL_PLAN,
+    plan: free ? 'free' : TRIAL_PLAN,
     interval: 'monthly',
-    trialEndsAt: addDays(business.createdAt, TRIAL_DAYS),
+    trialEndsAt: free ? business.createdAt : addDays(business.createdAt, TRIAL_DAYS),
     currentPeriodEnd: null,
     autoRenew: false,
     synthetic: true,
@@ -124,6 +125,8 @@ function planView(state) {
     trialEndedBy: ent.trialEndedBy,
     trialOrders: ent.trialOrders,
     orderNoun: ent.orderNoun,
+    // true for a business that started on the Free plan (it never had a trial)
+    startedFree: sub.plan === 'free',
   };
 }
 
@@ -832,7 +835,7 @@ const AUDIENCES = {
   everyone: 'Every business owner',
   trialing: 'Owners on a free trial',
   paid: 'Owners with a paid plan running',
-  ended: 'Owners whose trial or paid plan has ended',
+  ended: 'Owners on the Free plan, or whose paid plan has ended',
   business: 'The owner of one business',
   me: 'Only me (a test)',
 };

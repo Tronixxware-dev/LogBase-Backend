@@ -7,10 +7,12 @@ const BillingPayment = require('../models/BillingPayment');
 const Product = require('../models/Product');
 const User = require('../models/User');
 const Business = require('../models/Business');
+const LaundryOrder = require('../models/LaundryOrder');
+const TailorOrder = require('../models/TailorOrder');
 const paystack = require('./paystack');
 const { recordCommission } = require('./referrals');
 const { httpError } = require('./httpError');
-const { PLANS, PLAN_ORDER, TRIAL_PLAN, TRIAL_DAYS, LAUNDRY_TRIAL_ORDERS } = require('../config/plans');
+const { PLANS, PLAN_ORDER, TRIAL_PLAN, TRIAL_DAYS, NO_TRIAL_FROM, LAUNDRY_TRIAL_ORDERS, FREE_MONTHLY_ORDERS } = require('../config/plans');
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -31,11 +33,20 @@ function periodMonths(interval) {
   return interval === 'yearly' ? 12 : 1;
 }
 
-// The business's subscription. A business that has none yet (new, or from before billing existed)
-// starts its free trial now.
+// There is no free trial any more: a business created on or after NO_TRIAL_FROM starts on the Free plan.
+// (An older business with no subscription record yet still gets the trial it was promised.)
+function startsOnFree(business) {
+  return Boolean(business && business.createdAt) && new Date(business.createdAt).getTime() >= NO_TRIAL_FROM.getTime();
+}
+
+// The business's subscription. A business that has none yet is created now: on the Free plan if it is new, or with the
+// trial it was promised if it signed up before trials were removed.
+// (The Free plan is stored the same way the administrator's "Move to Free plan" stores it: a trial that has already ended.)
 async function getSubscription(businessId, now = new Date()) {
   const found = await Subscription.findOne({ business: businessId });
   if (found) return found;
+  const business = await Business.findById(businessId).select('createdAt').lean();
+  const free = startsOnFree(business);
   try {
     return await Subscription.findOneAndUpdate(
       { business: businessId },
@@ -43,9 +54,9 @@ async function getSubscription(businessId, now = new Date()) {
         $setOnInsert: {
           business: businessId,
           status: 'trialing',
-          plan: TRIAL_PLAN,
+          plan: free ? 'free' : TRIAL_PLAN,
           interval: 'monthly',
-          trialEndsAt: addDays(now, TRIAL_DAYS),
+          trialEndsAt: free ? new Date(business.createdAt) : addDays(now, TRIAL_DAYS),
         },
       },
       { upsert: true, new: true }
@@ -63,22 +74,46 @@ const ORDER_COUNTER_FIELDS = { laundromat: 'laundryCounter', tailor: 'tailorCoun
 const ORDER_NOUNS = { laundromat: 'laundry orders', tailor: 'tailoring orders' };
 const ORDER_COUNTER_SELECT = ['businessType', ...Object.values(ORDER_COUNTER_FIELDS)].join(' ');
 
-// Returns { orders, orderLimit } for a business of those kinds that is on its trial, and undefined for every other
-// business (their trial is days only). `business` needs businessType and its counter.
-// The order count is the business's counter, which only ever goes up, so deleting an order never gives a trial order back.
-function orderUsage(business, sub) {
+// The orders each of those kinds counts, to work out its free orders in a month
+const ORDER_MODELS = { laundromat: LaundryOrder, tailor: TailorOrder };
+
+// The first moment of the current calendar month in Nigeria (West Africa Time, UTC+1 all year).
+function monthStart(now = new Date()) {
+  const wat = new Date(now.getTime() + 60 * 60 * 1000);
+  return new Date(Date.UTC(wat.getUTCFullYear(), wat.getUTCMonth(), 1) - 60 * 60 * 1000);
+}
+
+// How many orders a laundromat or tailor has taken so far this month (0 for any other business).
+async function ordersThisMonth(business, now = new Date()) {
+  const Model = business && ORDER_MODELS[business.businessType];
+  if (!Model) return 0;
+  return Model.countDocuments({ business: business._id, createdAt: { $gte: monthStart(now) } });
+}
+
+// Returns { orders, orderLimit, monthOrders } for a laundromat or tailor, and undefined for every other business.
+// orders / orderLimit are for a trial it already had (a counter that only ever goes up, so deleting an order never gives an order back).
+// monthOrders (when given) is how many orders it took this month, which is what the Free plan limits (FREE_MONTHLY_ORDERS).
+// `business` needs businessType and its counter.
+function orderUsage(business, sub, monthOrders) {
   const field = business && ORDER_COUNTER_FIELDS[business.businessType];
   if (!field) return undefined;
   const limit = sub && Number(sub.trialOrderLimit) > 0 ? Number(sub.trialOrderLimit) : LAUNDRY_TRIAL_ORDERS;
-  return { orders: Number(business[field]) || 0, orderLimit: limit, noun: ORDER_NOUNS[business.businessType] };
+  return {
+    orders: Number(business[field]) || 0,
+    orderLimit: limit,
+    monthOrders: Number.isFinite(monthOrders) ? monthOrders : undefined,
+    noun: ORDER_NOUNS[business.businessType],
+  };
 }
 
 // What the business gets right now:
 //   state 'active'      paid, period not over
 //   state 'trialing'    free trial not over (Business features)
 //   state 'expired'     paid period is over -> Free
-//   state 'trial_ended' trial is over and nothing was paid -> Free (trialEndedBy says whether the days or the orders ran out)
-// `usage` ({ orders, orderLimit }, from orderUsage) is only given for a laundromat or tailor business; with it the trial also ends at orderLimit orders.
+//   state 'trial_ended' nothing is paid and no trial is running -> the Free plan (every new business is here; it is also where a
+//                       trial that ran out lands; trialEndedBy says whether the days or the orders ran out)
+// `usage` (from orderUsage) is only given for a laundromat or tailor business; with it a trial also ends at orderLimit orders,
+// and the Free plan allows FREE_MONTHLY_ORDERS orders a month (usage.monthOrders says how many it has taken).
 function entitlementsFor(sub, now = new Date(), usage) {
   const t = now.getTime();
   let plan = 'free';
@@ -104,6 +139,9 @@ function entitlementsFor(sub, now = new Date(), usage) {
 
   const def = PLANS[plan];
   const end = state === 'active' ? sub.currentPeriodEnd : state === 'trialing' ? sub.trialEndsAt : null;
+  // a laundromat or tailor on the Free plan (or whose paid plan ran out) may take a limited number of orders each month
+  const freeTier = state !== 'active' && state !== 'trialing';
+  const monthOrders = usage && Number.isFinite(usage.monthOrders) ? usage.monthOrders : null;
   return {
     plan,
     planName: def.name,
@@ -122,8 +160,10 @@ function entitlementsFor(sub, now = new Date(), usage) {
     trialOrders: usage && sub.status === 'trialing' ? { used: usage.orders, limit: usage.orderLimit } : null,
     // what the orders are called for this business ("laundry orders", "tailoring orders"); null for every other business
     orderNoun: usage ? usage.noun || 'orders' : null,
-    // laundromats and tailors only: true when new orders are refused (trial over, or the paid plan ran out)
-    ordersBlocked: Boolean(usage) && state !== 'active' && state !== 'trialing',
+    // laundromats and tailors only: on the Free plan, how many orders were taken this month and how many the month allows
+    freeOrders: usage && freeTier ? { used: monthOrders === null ? 0 : monthOrders, limit: FREE_MONTHLY_ORDERS } : null,
+    // laundromats and tailors only: true when new orders are refused (the month's free orders are used up on the Free plan)
+    ordersBlocked: Boolean(usage) && freeTier && monthOrders !== null && monthOrders >= FREE_MONTHLY_ORDERS,
   };
 }
 
@@ -133,7 +173,7 @@ async function describeSubscription(sub, now = new Date()) {
   const paidAndRunning = sub.status === 'active' && sub.currentPeriodEnd && new Date(sub.currentPeriodEnd).getTime() > now.getTime();
   if (!paidAndRunning) {
     const business = await Business.findById(sub.business).select(ORDER_COUNTER_SELECT).lean();
-    usage = orderUsage(business, sub);
+    usage = orderUsage(business, sub, await ordersThisMonth(business, now));
   }
   return entitlementsFor(sub, now, usage);
 }
@@ -190,24 +230,25 @@ async function assertCanAddStaff(businessId) {
   }
 }
 
-// Called before a NEW laundry order or tailor order is taken. Such a business may take orders while it is on its trial (14 days or
-// LAUNDRY_TRIAL_ORDERS orders, whichever comes first) or while a paid plan runs; after that it must upgrade. Starter and Business
-// have no order limit. Orders already taken are never touched, and other kinds of business are never stopped by this.
+// Called before a NEW laundry order or tailor order is taken. Such a business takes orders without limit while a paid plan runs
+// (or a trial it already had). On the Free plan, or after a paid plan has ended, it may take FREE_MONTHLY_ORDERS orders in each
+// calendar month; after that it must upgrade (or wait for next month). Orders already taken are never touched, and other kinds
+// of business are never stopped by this.
 async function assertCanAddOrder(businessId) {
   const business = await Business.findById(businessId).select(ORDER_COUNTER_SELECT).lean();
   if (!business || !ORDER_COUNTER_FIELDS[business.businessType]) return;
   const sub = await getSubscription(businessId);
-  const ent = entitlementsFor(sub, new Date(), orderUsage(business, sub));
+  const now = new Date();
+  const ent = entitlementsFor(sub, now, orderUsage(business, sub));
   if (ent.state === 'active' || ent.state === 'trialing') return;
+  const used = await ordersThisMonth(business, now);
+  if (used < FREE_MONTHLY_ORDERS) return;
   const keep = 'Your existing orders stay here and you can keep working on them.';
+  const taken = `you have taken ${used} of the ${FREE_MONTHLY_ORDERS} orders it allows each month`;
   if (ent.state === 'expired') {
-    throw httpError(402, `Your ${PLANS[sub.plan] ? PLANS[sub.plan].name : 'paid'} plan has ended. Renew or choose a plan on the Billing page to take new orders. ${keep}`);
+    throw httpError(402, `Your ${PLANS[sub.plan] ? PLANS[sub.plan].name : 'paid'} plan has ended, and the Free plan is limited: ${taken}. Renew or choose a plan on the Billing page to take more orders. ${keep}`);
   }
-  if (ent.trialEndedBy === 'orders') {
-    const limit = (orderUsage(business, sub) || {}).orderLimit || LAUNDRY_TRIAL_ORDERS;
-    throw httpError(402, `Your free trial has ended: you have taken ${limit} orders. Choose a plan on the Billing page to take new orders. ${keep}`);
-  }
-  throw httpError(402, `Your free trial has ended. Choose a plan on the Billing page to take new orders. ${keep}`);
+  throw httpError(402, `On the Free plan ${taken}. Choose a plan on the Billing page to take more orders now, or wait for next month. ${keep}`);
 }
 
 // Express middleware: lets the request through only when the plan includes the feature.
@@ -347,6 +388,8 @@ module.exports = {
   getSubscription,
   entitlementsFor,
   describeSubscription,
+  startsOnFree,
+  ordersThisMonth,
   orderUsage,
   assertCanAddOrder,
   entitlements,

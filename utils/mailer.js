@@ -129,14 +129,14 @@ function accountDeletedEmail({ name, businessName, wholeBusiness }) {
 }
 
 // Sent once, right after a business signs up
-function welcomeEmail({ name, businessName, trialDays, link }) {
+function welcomeEmail({ name, businessName, link }) {
   const hello = name ? `Hi ${name},` : 'Hi,';
   const biz = businessName ? ` for ${businessName}` : '';
-  const text = `${hello}\n\nWelcome to LogBase! Your account${biz} is ready, and your ${trialDays}-day free trial has started with every feature switched on.\n\nA good way to start: add your products, record a purchase and a sale, and see your stock update.\n\nOpen LogBase: ${link}\n\nNeed help? Write to ${SUPPORT_EMAIL}.\n`;
+  const text = `${hello}\n\nWelcome to LogBase! Your account${biz} is ready and you are on the Free plan. You can upgrade any time on the Billing page when you need more.\n\nA good way to start: add your products, record a purchase and a sale, and see your stock update.\n\nOpen LogBase: ${link}\n\nNeed help? Write to ${SUPPORT_EMAIL}.\n`;
   const html = layout(
     'Welcome to LogBase',
     `<p style="margin:0 0 12px;font-size:14px;line-height:1.5">${escapeHtml(hello)}</p>
-<p style="margin:0 0 12px;font-size:14px;line-height:1.5">Your account${escapeHtml(biz)} is ready, and your <strong>${escapeHtml(String(trialDays))}-day free trial</strong> has started with every feature switched on.</p>
+<p style="margin:0 0 12px;font-size:14px;line-height:1.5">Your account${escapeHtml(biz)} is ready and you are on the <strong>Free plan</strong>. You can upgrade any time on the Billing page when you need more.</p>
 <p style="margin:0 0 20px;font-size:14px;line-height:1.5">A good way to start: add your products, record a purchase and a sale, and see your stock update.</p>
 <p style="margin:0 0 20px"><a href="${escapeHtml(link)}" style="display:inline-block;background:#0d9488;color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;padding:11px 20px;border-radius:8px">Open LogBase</a></p>
 <p style="margin:0;font-size:12px;color:#6b7280;line-height:1.5">Need help? Write to ${SUPPORT_EMAIL}.</p>`

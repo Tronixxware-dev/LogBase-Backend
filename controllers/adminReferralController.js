@@ -211,7 +211,7 @@ async function detail(referrerId) {
           name: r.business.name,
           email: r.business.email,
           signedUpAt: r.createdAt,
-          plan: paid ? (PLANS[s.plan] ? PLANS[s.plan].name : s.plan) : s && s.status === 'active' ? 'Expired' : 'Free trial',
+          plan: paid ? (PLANS[s.plan] ? PLANS[s.plan].name : s.plan) : s && s.status === 'active' ? 'Expired' : s && s.trialEndsAt && new Date(s.trialEndsAt) > new Date() ? 'Free trial' : 'Free',
           earned: naira(earnedBy.get(String(r.business._id)) || 0),
         };
       }),

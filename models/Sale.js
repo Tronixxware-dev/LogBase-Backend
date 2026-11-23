@@ -82,6 +82,10 @@ const saleSchema = new mongoose.Schema(
 );
 
 saleSchema.index({ business: 1, date: -1 });
+// staff see only the sales they recorded; reports by product; the super-admin totals by period
+saleSchema.index({ business: 1, recordedBy: 1, date: -1 });
+saleSchema.index({ business: 1, product: 1, date: -1 });
+saleSchema.index({ date: -1 });
 saleSchema.index({ business: 1, clientId: 1 }, { unique: true, partialFilterExpression: { clientId: { $type: 'string' } } });
 
 module.exports = mongoose.model('Sale', saleSchema);

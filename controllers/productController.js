@@ -160,7 +160,7 @@ async function listProducts(req, res, next) {
     if (category) filter.category = category;
     if (search) filter.$text = { $search: search };
 
-    const products = await Product.find(filter).sort({ createdAt: -1 });
+    const products = await Product.find(filter).sort({ createdAt: -1 }).limit(5000); // never an unbounded read
 
     const result = lowStock === 'true'
       ? products.filter((p) => p.quantity <= p.reorderThreshold)

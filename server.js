@@ -6,6 +6,7 @@ const mongoose = require('mongoose');
 const connectDB = require('./config/db');
 const { notFound, errorHandler } = require('./middleware/errorHandler');
 const { trustProxyValue, securityHeaders, noStore, corsOptions } = require('./utils/security');
+const { rateLimit } = require('./utils/rateLimit');
 
 const authRoutes = require('./routes/authRoutes');
 const productRoutes = require('./routes/productRoutes');
@@ -57,6 +58,10 @@ if (trustProxy !== false) app.set('trust proxy', trustProxy);
 app.use(securityHeaders);
 app.use(cors(corsOptions(process.env.CORS_ORIGIN)));
 app.use('/api', noStore);
+// A general ceiling per address, so one runaway app or script cannot flood the server. Generous enough for a whole shop
+// sharing one Wi-Fi (and for a batch of offline sales being sent at once); the Paystack webhook and the health check are left out.
+const apiLimit = rateLimit({ windowMs: 60 * 1000, max: 1500, message: 'Too many requests. Please wait a moment and try again.' });
+app.use('/api', (req, res, next) => (req.path === '/health' || req.path.startsWith('/billing/webhook') ? next() : apiLimit(req, res, next)));
 // The raw body is kept for the Paystack webhook only: its signature is calculated over the exact bytes sent.
 app.use(
   express.json({

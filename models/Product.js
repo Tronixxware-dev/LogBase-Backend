@@ -66,6 +66,7 @@ productSchema.pre('validate', function () {
   }
 });
 
+productSchema.index({ business: 1, isActive: 1, createdAt: -1 });
 productSchema.index({ business: 1, sku: 1 });
 productSchema.index({ business: 1, category: 1 });
 productSchema.index({ business: 1, name: 'text', description: 'text' });

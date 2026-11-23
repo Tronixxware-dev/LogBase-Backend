@@ -15,4 +15,6 @@ const customerSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+customerSchema.index({ business: 1, name: 1 });
+
 module.exports = mongoose.model('Customer', customerSchema);

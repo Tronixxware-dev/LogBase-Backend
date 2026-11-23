@@ -31,6 +31,8 @@ function clean(value) {
 }
 
 const MAX_SALE_PHOTOS = 8;
+const DEFAULT_LIST = 5000;
+const MAX_LIST = 20000;
 
 // "Are you paying for the delivery?" Yes means the business pays and the amount is required.
 // No (or not answered) means the customer pays, so there is no delivery cost to record.
@@ -63,11 +65,28 @@ async function listSales(req, res, next) {
     // ?shop=<store id> (or "main") shows only the sales made from that store; leave it out for every store
     await applyShopFilter(req, filter);
 
+    // ?from=YYYY-MM-DD and ?to=YYYY-MM-DD narrow the list to a period
+    const range = {};
+    const from = req.query.from ? new Date(String(req.query.from)) : null;
+    const to = req.query.to ? new Date(String(req.query.to)) : null;
+    if (from && !Number.isNaN(from.getTime())) range.$gte = from;
+    if (to && !Number.isNaN(to.getTime())) range.$lte = to;
+    if (Object.keys(range).length > 0) filter.date = range;
+
+    // A busy business can have tens of thousands of sales: one request never loads more than the newest LIMIT of them
+    // (5000 unless ?limit= asks for another number, never above 20000), so many people opening pages at once cannot exhaust the server.
+    const asked = Number.parseInt(String(req.query.limit || ''), 10);
+    const limit = Number.isFinite(asked) && asked > 0 ? Math.min(asked, MAX_LIST) : DEFAULT_LIST;
+
     const sales = await Sale.find(filter)
       .populate('product', 'name sku images')
       .populate('customer', 'name')
-      .sort({ date: -1, createdAt: -1 });
-    res.json({ sales: salesForUser(req, await withSellerPhotos(req.businessId, sales)) });
+      .sort({ date: -1, createdAt: -1 })
+      .limit(limit + 1)
+      .lean();
+    const truncated = sales.length > limit;
+    if (truncated) sales.pop();
+    res.json({ sales: salesForUser(req, await withSellerPhotos(req.businessId, sales)), truncated });
   } catch (err) {
     next(err);
   }

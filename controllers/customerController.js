@@ -43,7 +43,7 @@ async function listCustomers(req, res, next) {
     await applyWorkingShop(req, filter);
     if (typeof search === 'string' && search.trim()) filter.name = { $regex: escapeRegex(search.trim()), $options: 'i' };
 
-    const customers = await Customer.find(filter).sort({ name: 1 });
+    const customers = await Customer.find(filter).sort({ name: 1 }).limit(10000); // never an unbounded read
     res.json({ customers: customersForUser(req, customers) });
   } catch (err) {
     next(err);

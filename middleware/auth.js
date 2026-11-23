@@ -4,6 +4,21 @@ const Business = require('../models/Business');
 const { isSuperAdminEmail } = require('../utils/superAdmin');
 const { can } = require('../utils/permissions');
 
+// Whether a business is suspended is read at most once every 20 seconds per business instead of on every request
+// (a suspension takes effect within that time). Keeps one database read off every call.
+const BUSINESS_TTL_MS = 20000;
+const businessCache = new Map(); // id -> { at, value }
+
+async function businessState(id) {
+  const key = String(id);
+  const hit = businessCache.get(key);
+  if (hit && Date.now() - hit.at < BUSINESS_TTL_MS) return hit.value;
+  const value = await Business.findById(id).select('isActive suspendedReason').lean();
+  if (businessCache.size > 5000) businessCache.clear(); // never grows without end
+  businessCache.set(key, { at: Date.now(), value });
+  return value;
+}
+
 async function requireAuth(req, res, next) {
   try {
     const token = req.headers.authorization?.split(' ')[1];
@@ -18,7 +33,7 @@ async function requireAuth(req, res, next) {
     }
 
     // a business the LogBase super admin has suspended is shut out of everything (the owner of LogBase is never locked out)
-    const business = await Business.findById(user.business).select('isActive suspendedReason');
+    const business = await businessState(user.business);
     if (business && business.isActive === false && !isSuperAdminEmail(user.email)) {
       return res.status(403).json({
         message: business.suspendedReason

@@ -3,10 +3,11 @@ const BillingPayment = require('../models/BillingPayment');
 const Subscription = require('../models/Subscription');
 const User = require('../models/User');
 const paystack = require('../utils/paystack');
+const googlePlay = require('../utils/googlePlay');
 const { httpError } = require('../utils/httpError');
 const { logActivity } = require('../utils/audit');
 const { getSubscription, describeSubscription, entitlements, settlePayment, unitsInStock, PLAN_ORDER } = require('../utils/billing');
-const { PLANS, PAID_PLANS, INTERVALS, TRIAL_DAYS, CURRENCY, priceOf } = require('../config/plans');
+const { PLANS, PAID_PLANS, INTERVALS, TRIAL_DAYS, CURRENCY, priceOf, GOOGLE_PRODUCTS } = require('../config/plans');
 
 function naira(kobo) {
   return Math.round(kobo) / 100;
@@ -35,6 +36,7 @@ function paymentView(p) {
     paidAt: p.paidAt || null,
     periodEnd: p.periodEnd || null,
     renewal: Boolean(p.renewal),
+    source: p.source || 'paystack',
     failureReason: p.status === 'failed' ? p.failureReason || null : null,
     createdAt: p.createdAt,
   };
@@ -54,6 +56,23 @@ function autoRenewView(sub) {
   };
 }
 
+// What the Android app needs to sell and show plans through Google Play. The purchase token itself is never included.
+function googleView(sub, businessId) {
+  const g = sub.google || {};
+  const running = Boolean(g.expiresAt && new Date(g.expiresAt).getTime() > Date.now());
+  return {
+    configured: googlePlay.isConfigured(),
+    accountToken: googlePlay.accountTokenFor(businessId),
+    products: GOOGLE_PRODUCTS,
+    // true while a plan bought on Android is running and Google renews it: it is changed or cancelled in Google Play
+    managed: Boolean(running && g.autoRenewing && sub.status === 'active'),
+    productId: running ? g.productId || null : null,
+    state: running ? g.state || null : null,
+    autoRenewing: running ? Boolean(g.autoRenewing) : false,
+    expiresAt: running ? g.expiresAt : null,
+  };
+}
+
 function frontendUrl() {
   return (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/+$/, '');
 }
@@ -62,6 +81,8 @@ function frontendUrl() {
 // Where the business stands: plan, trial / paid-until date, what it is using, the plans on offer, recent payments.
 async function getBilling(req, res, next) {
   try {
+    // a plan bought on Android is re-checked with Google now and then; if Google cannot be reached the page still opens
+    await googlePlay.refreshIfStale(req.businessId).catch((err) => console.error('Google Play re-check failed:', err.message));
     const sub = await getSubscription(req.businessId);
     const [stocks, staff, payments] = await Promise.all([
       unitsInStock(req.businessId),
@@ -72,6 +93,7 @@ async function getBilling(req, res, next) {
       configured: paystack.isConfigured(),
       subscription: await describeSubscription(sub),
       autoRenew: autoRenewView(sub),
+      google: googleView(sub, req.businessId),
       usage: { stocks, staff },
       plans: publicPlans(),
       trialDays: TRIAL_DAYS,
@@ -94,6 +116,12 @@ async function checkout(req, res, next) {
     if (!paystack.isConfigured()) throw httpError(503, 'Online payments are not set up yet. Please try again later.');
 
     const amount = priceOf(plan, interval);
+
+    // a plan bought on Android is renewed by Google Play: paying here too would charge the business twice
+    const current = await getSubscription(req.businessId);
+    if (googleView(current, req.businessId).managed) {
+      throw httpError(409, 'Your plan was bought in the Android app and is renewed by Google Play. Change or cancel it in Google Play, or wait until it ends.');
+    }
 
     // a lower plan cannot be bought while a higher one the business already paid for is still running
     const ent = await entitlements(req.businessId);
@@ -210,6 +238,63 @@ async function webhook(req, res, next) {
   }
 }
 
+// POST /api/billing/google/verify   body: { purchaseToken }   (administrator only, from the Android app)
+// The app has just bought a plan with Google Play. We ask Google what the purchase really is before giving anything.
+async function googleVerify(req, res, next) {
+  try {
+    const token = req.body && typeof req.body.purchaseToken === 'string' ? req.body.purchaseToken.trim() : '';
+    if (!token || token.length > 2000) throw httpError(400, 'No purchase was given');
+    if (!googlePlay.isConfigured()) throw httpError(503, 'Google Play payments are not set up yet. Please try again later.');
+    const result = await googlePlay.verifyAndApply(req.businessId, token);
+    if (result.pending) {
+      return res.json({ pending: true, message: 'Your payment is still being processed by Google Play. Your plan starts as soon as it is confirmed.' });
+    }
+    if (!result.entitled) throw httpError(400, 'This purchase is not active.');
+    if (result.payment) {
+      logActivity(req, {
+        action: 'billing.google_payment',
+        summary: `Bought the ${PLANS[result.plan].name} plan (${result.interval}) in the Android app`,
+      });
+    }
+    const sub = await getSubscription(req.businessId);
+    res.json({ subscription: await describeSubscription(sub), google: googleView(sub, req.businessId) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// POST /api/billing/google/notify/:token   Google Play's real-time notifications (through Google Cloud Pub/Sub push).
+// No login: the secret in the address is what protects it. Google is only told "received" once we have dealt with the message;
+// a temporary problem answers 500 so Google sends it again later.
+async function googleNotifications(req, res) {
+  try {
+    const expected = process.env.GOOGLE_PLAY_RTDN_TOKEN || '';
+    const given = String(req.params.token || '');
+    const a = Buffer.from(given);
+    const b = Buffer.from(expected);
+    if (!expected || a.length !== b.length || !crypto.timingSafeEqual(a, b)) return res.status(401).json({ message: 'Not allowed' });
+
+    const data = req.body && req.body.message && req.body.message.data;
+    let note = null;
+    try {
+      note = data ? JSON.parse(Buffer.from(data, 'base64').toString('utf8')) : null;
+    } catch {
+      note = null;
+    }
+    if (!note || (note.packageName && note.packageName !== require('../config/plans').GOOGLE_PACKAGE)) return res.json({ received: true });
+
+    const token =
+      (note.subscriptionNotification && note.subscriptionNotification.purchaseToken) ||
+      (note.voidedPurchaseNotification && note.voidedPurchaseNotification.purchaseToken) ||
+      null;
+    if (token && googlePlay.isConfigured()) await googlePlay.syncByToken(token);
+    res.json({ received: true });
+  } catch (err) {
+    console.error('Google Play notification failed:', err.message);
+    res.status(err && err.statusCode && err.statusCode < 500 ? 200 : 500).json({ received: false });
+  }
+}
+
 // PUT /api/billing/auto-renew   body: { enabled: boolean }   (administrator only)
 // Turning it off always works. Turning it on needs a plan that has been paid for and a saved card
 // (the card is saved when a plan is paid for with "renew automatically" ticked).
@@ -261,4 +346,4 @@ async function removeCard(req, res, next) {
   }
 }
 
-module.exports = { getBilling, checkout, verify, webhook, publicPlans, setAutoRenew, removeCard };
+module.exports = { getBilling, checkout, verify, webhook, publicPlans, setAutoRenew, removeCard, googleVerify, googleNotifications };

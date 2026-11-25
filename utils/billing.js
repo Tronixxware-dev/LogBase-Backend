@@ -12,7 +12,7 @@ const TailorOrder = require('../models/TailorOrder');
 const paystack = require('./paystack');
 const { recordCommission } = require('./referrals');
 const { httpError } = require('./httpError');
-const { PLANS, PLAN_ORDER, TRIAL_PLAN, TRIAL_DAYS, NO_TRIAL_FROM, LAUNDRY_TRIAL_ORDERS, FREE_MONTHLY_ORDERS } = require('../config/plans');
+const { PLANS, PLAN_ORDER, PAID_PLANS, PREVIEW_UNITS, PREVIEW_ORDERS, TRIAL_PLAN, TRIAL_DAYS, NO_TRIAL_FROM, LAUNDRY_TRIAL_ORDERS, FREE_MONTHLY_ORDERS } = require('../config/plans');
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -138,6 +138,9 @@ function entitlementsFor(sub, now = new Date(), usage) {
   }
 
   const def = PLANS[plan];
+  // "Try it first": picked Starter or Business when signing up and has never paid. Until then only a few units (or orders) fit.
+  const preview = plan === 'free' && state === 'trial_ended' && !sub.lastPaymentAt && PAID_PLANS.includes(sub.chosenPlan);
+  const limits = preview ? { ...def.limits, stocks: PREVIEW_UNITS } : def.limits;
   const end = state === 'active' ? sub.currentPeriodEnd : state === 'trialing' ? sub.trialEndsAt : null;
   // a laundromat or tailor on the Free plan (or whose paid plan ran out) may take a limited number of orders each month
   const freeTier = state !== 'active' && state !== 'trialing';
@@ -146,8 +149,12 @@ function entitlementsFor(sub, now = new Date(), usage) {
     plan,
     planName: def.name,
     state,
-    limits: def.limits,
+    limits,
     features: def.features,
+    // set only during the preview: the plan the business picked and how much it may try before paying
+    preview: preview
+      ? { plan: sub.chosenPlan, planName: PLANS[sub.chosenPlan].name, interval: sub.chosenInterval || 'monthly', units: PREVIEW_UNITS, orders: PREVIEW_ORDERS }
+      : null,
     interval: sub.interval,
     trialEndsAt: sub.trialEndsAt || null,
     currentPeriodEnd: sub.currentPeriodEnd || null,
@@ -157,13 +164,13 @@ function entitlementsFor(sub, now = new Date(), usage) {
     lastPaidPlan: sub.status === 'active' ? sub.plan : null,
     // laundromats and tailors only: how many orders the trial allows and how many have been taken (null for every other business)
     trialEndedBy,
-    trialOrders: usage && sub.status === 'trialing' ? { used: usage.orders, limit: usage.orderLimit } : null,
+    trialOrders: usage && sub.status === 'trialing' && !preview ? { used: usage.orders, limit: usage.orderLimit } : null,
     // what the orders are called for this business ("laundry orders", "tailoring orders"); null for every other business
     orderNoun: usage ? usage.noun || 'orders' : null,
     // laundromats and tailors only: on the Free plan, how many orders were taken this month and how many the month allows
-    freeOrders: usage && freeTier ? { used: monthOrders === null ? 0 : monthOrders, limit: FREE_MONTHLY_ORDERS } : null,
+    freeOrders: usage && freeTier ? (preview ? { used: usage.orders, limit: PREVIEW_ORDERS } : { used: monthOrders === null ? 0 : monthOrders, limit: FREE_MONTHLY_ORDERS }) : null,
     // laundromats and tailors only: true when new orders are refused (the month's free orders are used up on the Free plan)
-    ordersBlocked: Boolean(usage) && freeTier && monthOrders !== null && monthOrders >= FREE_MONTHLY_ORDERS,
+    ordersBlocked: Boolean(usage) && freeTier && (preview ? usage.orders >= PREVIEW_ORDERS : monthOrders !== null && monthOrders >= FREE_MONTHLY_ORDERS),
   };
 }
 
@@ -209,6 +216,10 @@ async function assertRoomForUnits(businessId, adding) {
   if (limit == null) return;
   const used = await unitsInStock(businessId);
   if (used + extra <= limit) return;
+  if (ent.preview) {
+    // the free test is used up: the plan they picked has to be paid for
+    throw httpError(402, `You have used your ${unitsText(limit)}-unit test. Pay for the ${ent.preview.planName} plan you chose on mylogbase.com to add more stock. Everything you added stays here and selling still works.`);
+  }
   const holds = `Your ${ent.planName} plan holds up to ${unitsText(limit)} units in stock`;
   const tail = 'Upgrade your plan on the Billing page to add more stock.';
   if (used >= limit) {
@@ -241,6 +252,10 @@ async function assertCanAddOrder(businessId) {
   const now = new Date();
   const ent = entitlementsFor(sub, now, orderUsage(business, sub));
   if (ent.state === 'active' || ent.state === 'trialing') return;
+  if (ent.preview) {
+    if (ent.freeOrders.used < PREVIEW_ORDERS) return;
+    throw httpError(402, `You have used your ${PREVIEW_ORDERS}-order test. Pay for the ${ent.preview.planName} plan you chose on mylogbase.com to take more orders. Your existing orders stay here and you can keep working on them.`);
+  }
   const used = await ordersThisMonth(business, now);
   if (used < FREE_MONTHLY_ORDERS) return;
   const keep = 'Your existing orders stay here and you can keep working on them.';

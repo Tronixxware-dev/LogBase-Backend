@@ -1,0 +1,91 @@
+// The plans LogBase sells. Change prices and limits HERE and nowhere else: the server reads them for
+// every payment and every limit check, and the Billing page gets them from the server.
+//
+// Prices are in kobo (1 naira = 100 kobo), which is what Paystack wants.
+// A limit of null means "no limit".
+// limits.stocks is the number of UNITS the business may hold in stock at one time (every unit of every product).
+// Selling stock makes room again; the limit only stops more stock being added (see assertRoomForUnits in utils/billing.js).
+// A laundromat or a tailor holds no stock, so the Free plan's stock limit means nothing to it. On the Free plan (or when a
+// paid plan has run out) it may take this many orders in each calendar month; Starter and Business have no order limit.
+// Change the number here and nowhere else.
+const FREE_MONTHLY_ORDERS = 30;
+
+const PLANS = {
+  free: {
+    key: 'free',
+    name: 'Free',
+    tagline: 'To try LogBase for yourself',
+    monthly: 0,
+    yearly: 0,
+    // orders: only laundromats and tailors use it (they hold no stock); every other business uses stocks
+    limits: { staff: 0, stocks: 30, orders: FREE_MONTHLY_ORDERS },
+    features: { activityLog: false },
+  },
+  starter: {
+    key: 'starter',
+    name: 'Starter',
+    tagline: 'For a shop with a few helpers',
+    monthly: 200000, // ₦2,000
+    yearly: 2000000, // ₦20,000 (two months free)
+    limits: { staff: 3, stocks: 300 },
+    features: { activityLog: false },
+  },
+  business: {
+    key: 'business',
+    name: 'Business',
+    tagline: 'For a growing business',
+    monthly: 500000, // ₦5,000
+    yearly: 5000000, // ₦50,000 (two months free)
+    limits: { staff: null, stocks: null },
+    features: { activityLog: true },
+  },
+};
+
+// FOR TESTING PAYMENTS ONLY: set PAYSTACK_TEST_PRICES=on in the server's environment and Starter costs
+// N100 a month (N1,000 a year) and Business N200 a month (N2,000 a year). Remove the variable (or set it to
+// anything else) and the real prices above are back. Nothing else needs to change.
+const TEST_PRICES = process.env.PAYSTACK_TEST_PRICES === 'on';
+if (TEST_PRICES) {
+  PLANS.starter.monthly = 10000; // N100
+  PLANS.starter.yearly = 100000; // N1,000
+  PLANS.business.monthly = 20000; // N200
+  PLANS.business.yearly = 200000; // N2,000
+  console.warn('WARNING: PAYSTACK_TEST_PRICES is on. Customers are being charged test prices (N100 / N200).');
+}
+
+const PLAN_ORDER = ['free', 'starter', 'business'];
+const PAID_PLANS = ['starter', 'business'];
+const INTERVALS = ['monthly', 'yearly'];
+
+// THERE IS NO FREE TRIAL ANY MORE. A business created on or after NO_TRIAL_FROM starts on the Free plan and upgrades when it
+// wants more. TRIAL_PLAN and TRIAL_DAYS stay only for the businesses that already had a trial (or were created before
+// NO_TRIAL_FROM and have not opened billing yet): they keep the 14 days of Business they were promised.
+// To set the moment yourself, put NO_TRIAL_FROM=2026-11-24T00:00:00Z (any ISO date) in the server's environment.
+const TRIAL_PLAN = 'business';
+const TRIAL_DAYS = 14;
+const parsedNoTrialFrom = new Date(process.env.NO_TRIAL_FROM || '2026-11-23T07:00:00Z');
+const NO_TRIAL_FROM = Number.isNaN(parsedNoTrialFrom.getTime()) ? new Date('2026-11-23T07:00:00Z') : parsedNoTrialFrom;
+
+// For a laundromat that is still on a trial it already had: the trial also ends once it has taken this many laundry orders
+// (whichever comes first, 14 days or this many orders). See orderUsage / assertCanAddOrder in utils/billing.js.
+const LAUNDRY_TRIAL_ORDERS = 50;
+
+const CURRENCY = 'NGN';
+
+// Plans bought inside the Android app (Google Play Billing). These ids must match the four subscriptions created in the
+// Google Play Console (Monetize > Subscriptions); the price of each is set there. Change GOOGLE_PLAY_PACKAGE only if the app id changes.
+const GOOGLE_PACKAGE = process.env.GOOGLE_PLAY_PACKAGE || 'com.mylogbase.app';
+const GOOGLE_PRODUCTS = {
+  starter_monthly: { plan: 'starter', interval: 'monthly' },
+  starter_yearly: { plan: 'starter', interval: 'yearly' },
+  business_monthly: { plan: 'business', interval: 'monthly' },
+  business_yearly: { plan: 'business', interval: 'yearly' },
+};
+
+function priceOf(plan, interval) {
+  const p = PLANS[plan];
+  if (!p || !INTERVALS.includes(interval)) return null;
+  return p[interval];
+}
+
+module.exports = { PLANS, PLAN_ORDER, PAID_PLANS, INTERVALS, TRIAL_PLAN, TRIAL_DAYS, NO_TRIAL_FROM, LAUNDRY_TRIAL_ORDERS, FREE_MONTHLY_ORDERS, CURRENCY, priceOf, GOOGLE_PACKAGE, GOOGLE_PRODUCTS };

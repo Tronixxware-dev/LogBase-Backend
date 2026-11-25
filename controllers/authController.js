@@ -6,7 +6,8 @@ const { cloudinary } = require('../config/cloudinary');
 const mailer = require('../utils/mailer');
 const { httpError } = require('../utils/httpError');
 const { logActivity } = require('../utils/audit');
-const { assertCanAddStaff } = require('../utils/billing');
+const { assertCanAddStaff, getSubscription } = require('../utils/billing');
+const Subscription = require('../models/Subscription');
 const { checkPassword } = require('../utils/passwordPolicy');
 const { isSuperAdminEmail } = require('../utils/superAdmin');
 const { DEFAULT_BUSINESS_TYPE, cleanBusinessType } = require('../utils/businessTypes');
@@ -81,6 +82,11 @@ async function registerBusiness(req, res, next) {
     const businessType = req.body.businessType === undefined ? DEFAULT_BUSINESS_TYPE : cleanBusinessType(req.body.businessType);
     if (!businessType) return res.status(400).json({ message: 'Choose the type of business' });
 
+    // The plan picked on the sign-up page ('free', 'starter' or 'business'). A sign-up that sends none (an older app) picked Free.
+    const chosenPlan = req.body.plan === undefined || req.body.plan === null || req.body.plan === '' ? 'free' : String(req.body.plan);
+    if (!['free', 'starter', 'business'].includes(chosenPlan)) return res.status(400).json({ message: 'Choose a plan' });
+    const chosenInterval = req.body.interval === 'yearly' ? 'yearly' : 'monthly';
+
     const existingBusiness = await Business.findOne({ email: businessEmail.toLowerCase() });
     if (existingBusiness) {
       return res.status(409).json({ message: 'A business with that email already exists' });
@@ -97,6 +103,10 @@ async function registerBusiness(req, res, next) {
 
     const business = await Business.create({ name: businessName, email: businessEmail, businessType });
     if (referrer) await attachReferral(business._id, referrer);
+
+    // the new business starts on the Free plan; remember which plan it picked (a paid pick may try the app first, then pays)
+    await getSubscription(business._id);
+    await Subscription.updateOne({ business: business._id }, { $set: { chosenPlan, chosenInterval } });
 
     const passwordHash = await bcrypt.hash(password, 10);
     const owner = await User.create({

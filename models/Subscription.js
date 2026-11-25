@@ -11,6 +11,10 @@ const subscriptionSchema = new mongoose.Schema(
     plan: { type: String, enum: ['free', 'starter', 'business'], default: 'business' },
     interval: { type: String, enum: ['monthly', 'yearly'], default: 'monthly' },
     trialEndsAt: { type: Date },
+    // The plan the business picked when it signed up ('free' | 'starter' | 'business'). A business that picked a paid plan
+    // and has not paid yet is in the "try it first" preview (see entitlementsFor in utils/billing.js). Older businesses have none.
+    chosenPlan: { type: String, enum: ['free', 'starter', 'business'] },
+    chosenInterval: { type: String, enum: ['monthly', 'yearly'] },
     // A laundromat's trial also ends after this many laundry orders. Empty = the standard number (LAUNDRY_TRIAL_ORDERS);
     // the administrator raises it when giving a laundromat more trial.
     trialOrderLimit: { type: Number, min: 1 },
@@ -38,8 +42,22 @@ const subscriptionSchema = new mongoose.Schema(
     renewalFailure: { type: String },
     nextRenewalAt: { type: Date },
     renewalLockUntil: { type: Date },
+
+    // A plan bought inside the Android app with Google Play Billing. Google charges and renews it; we only follow what Google
+    // says (utils/googlePlay.js). The purchase token is never sent to the browser (select: false).
+    google: {
+      purchaseToken: { type: String, select: false },
+      productId: { type: String },
+      orderId: { type: String },
+      state: { type: String },
+      expiresAt: { type: Date },
+      autoRenewing: { type: Boolean },
+      syncedAt: { type: Date },
+    },
   },
   { timestamps: true }
 );
+
+subscriptionSchema.index({ 'google.purchaseToken': 1 }, { sparse: true });
 
 module.exports = mongoose.model('Subscription', subscriptionSchema);

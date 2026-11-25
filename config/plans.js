@@ -10,6 +10,12 @@
 // Change the number here and nowhere else.
 const FREE_MONTHLY_ORDERS = 30;
 
+// A new business picks a plan BEFORE it signs up. Someone who picks Starter or Business may try the app first: until the first
+// payment they can put PREVIEW_UNITS units in stock (a laundromat or tailor: PREVIEW_ORDERS orders) and must pay for the plan
+// they picked to add more. Someone who picks Free just has the Free plan. Once a business has paid, this no longer applies.
+const PREVIEW_UNITS = 5;
+const PREVIEW_ORDERS = 5;
+
 const PLANS = {
   free: {
     key: 'free',
@@ -18,7 +24,7 @@ const PLANS = {
     monthly: 0,
     yearly: 0,
     // orders: only laundromats and tailors use it (they hold no stock); every other business uses stocks
-    limits: { staff: 0, stocks: 30, orders: FREE_MONTHLY_ORDERS },
+    limits: { staff: 0, stocks: 10, orders: FREE_MONTHLY_ORDERS },
     features: { activityLog: false },
   },
   starter: {
@@ -72,10 +78,20 @@ const LAUNDRY_TRIAL_ORDERS = 50;
 
 const CURRENCY = 'NGN';
 
+// Plans bought inside the Android app (Google Play Billing). These ids must match the four subscriptions created in the
+// Google Play Console (Monetize > Subscriptions); the price of each is set there. Change GOOGLE_PLAY_PACKAGE only if the app id changes.
+const GOOGLE_PACKAGE = process.env.GOOGLE_PLAY_PACKAGE || 'com.mylogbase.app';
+const GOOGLE_PRODUCTS = {
+  starter_monthly: { plan: 'starter', interval: 'monthly' },
+  starter_yearly: { plan: 'starter', interval: 'yearly' },
+  business_monthly: { plan: 'business', interval: 'monthly' },
+  business_yearly: { plan: 'business', interval: 'yearly' },
+};
+
 function priceOf(plan, interval) {
   const p = PLANS[plan];
   if (!p || !INTERVALS.includes(interval)) return null;
   return p[interval];
 }
 
-module.exports = { PLANS, PLAN_ORDER, PAID_PLANS, INTERVALS, TRIAL_PLAN, TRIAL_DAYS, NO_TRIAL_FROM, LAUNDRY_TRIAL_ORDERS, FREE_MONTHLY_ORDERS, CURRENCY, priceOf };
+module.exports = { PREVIEW_UNITS, PREVIEW_ORDERS, PLANS, PLAN_ORDER, PAID_PLANS, INTERVALS, TRIAL_PLAN, TRIAL_DAYS, NO_TRIAL_FROM, LAUNDRY_TRIAL_ORDERS, FREE_MONTHLY_ORDERS, CURRENCY, priceOf, GOOGLE_PACKAGE, GOOGLE_PRODUCTS };

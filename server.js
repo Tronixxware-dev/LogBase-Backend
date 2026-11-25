@@ -61,7 +61,7 @@ app.use('/api', noStore);
 // A general ceiling per address, so one runaway app or script cannot flood the server. Generous enough for a whole shop
 // sharing one Wi-Fi (and for a batch of offline sales being sent at once); the Paystack webhook and the health check are left out.
 const apiLimit = rateLimit({ windowMs: 60 * 1000, max: 1500, message: 'Too many requests. Please wait a moment and try again.' });
-app.use('/api', (req, res, next) => (req.path === '/health' || req.path.startsWith('/billing/webhook') ? next() : apiLimit(req, res, next)));
+app.use('/api', (req, res, next) => (req.path === '/health' || req.path.startsWith('/billing/webhook') || req.path.startsWith('/billing/google/notify') ? next() : apiLimit(req, res, next)));
 // The raw body is kept for the Paystack webhook only: its signature is calculated over the exact bytes sent.
 app.use(
   express.json({

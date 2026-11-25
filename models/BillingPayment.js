@@ -23,6 +23,9 @@ const billingPaymentSchema = new mongoose.Schema(
     autoRenew: { type: Boolean, default: false },
     renewal: { type: Boolean, default: false },
     failureReason: { type: String },
+    // where the money was taken: Paystack (website) or Google Play (Android app)
+    source: { type: String, enum: ['paystack', 'google'], default: 'paystack' },
+    googleOrderId: { type: String },
     // the period this payment bought (filled in when it is applied)
     periodStart: { type: Date },
     periodEnd: { type: Date },

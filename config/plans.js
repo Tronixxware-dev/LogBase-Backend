@@ -11,10 +11,10 @@
 const FREE_MONTHLY_ORDERS = 30;
 
 // A new business picks a plan BEFORE it signs up. Someone who picks Starter or Business may try the app first: until the first
-// payment they can put PREVIEW_UNITS units in stock (a laundromat or tailor: PREVIEW_ORDERS orders) and must pay for the plan
+// payment they can put PREVIEW_UNITS units in stock (a laundromat or tailor: PREVIEW_ORDERS orders) and have the staff accounts of the plan they picked, and must pay for the plan
 // they picked to add more. Someone who picks Free just has the Free plan. Once a business has paid, this no longer applies.
-const PREVIEW_UNITS = 5;
-const PREVIEW_ORDERS = 5;
+const PREVIEW_UNITS = 7;
+const PREVIEW_ORDERS = 7;
 
 const PLANS = {
   free: {
@@ -24,7 +24,7 @@ const PLANS = {
     monthly: 0,
     yearly: 0,
     // orders: only laundromats and tailors use it (they hold no stock); every other business uses stocks
-    limits: { staff: 0, stocks: 10, orders: FREE_MONTHLY_ORDERS },
+    limits: { staff: 0, stocks: 7, orders: FREE_MONTHLY_ORDERS },
     features: { activityLog: false },
   },
   starter: {

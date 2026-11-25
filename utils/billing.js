@@ -140,7 +140,8 @@ function entitlementsFor(sub, now = new Date(), usage) {
   const def = PLANS[plan];
   // "Try it first": picked Starter or Business when signing up and has never paid. Until then only a few units (or orders) fit.
   const preview = plan === 'free' && state === 'trial_ended' && !sub.lastPaymentAt && PAID_PLANS.includes(sub.chosenPlan);
-  const limits = preview ? { ...def.limits, stocks: PREVIEW_UNITS } : def.limits;
+  // the test gives a few units AND the staff accounts of the plan they picked (Starter 3, Business unlimited), so they can try the team features too
+  const limits = preview ? { ...def.limits, stocks: PREVIEW_UNITS, staff: PLANS[sub.chosenPlan].limits.staff } : def.limits;
   const end = state === 'active' ? sub.currentPeriodEnd : state === 'trialing' ? sub.trialEndsAt : null;
   // a laundromat or tailor on the Free plan (or whose paid plan ran out) may take a limited number of orders each month
   const freeTier = state !== 'active' && state !== 'trialing';
@@ -232,12 +233,13 @@ async function assertCanAddStaff(businessId) {
   const ent = await entitlements(businessId);
   const limit = ent.limits.staff;
   if (limit == null) return;
+  const planName = ent.preview ? ent.preview.planName : ent.planName;
   if (limit === 0) {
     throw httpError(402, `The ${ent.planName} plan does not include staff accounts. Upgrade your plan on the Billing page to add staff.`);
   }
   const count = await User.countDocuments({ business: businessId, role: 'staff', isActive: true });
   if (count >= limit) {
-    throw httpError(402, `Your ${ent.planName} plan allows up to ${limit} staff. Upgrade your plan on the Billing page to add more.`);
+    throw httpError(402, `Your ${planName} plan allows up to ${limit} staff. ${ent.preview ? `Pay for the ${planName} plan` : 'Upgrade your plan'} on the Billing page to add more.`);
   }
 }
 

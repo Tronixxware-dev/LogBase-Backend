@@ -49,6 +49,26 @@ function readDelivery(body) {
 
 // A sale sent with photos arrives as multipart form data with the sale itself in a JSON `payload` field.
 // A sale sent without photos is plain JSON.
+const PAY_METHODS = ['cash', 'transfer', 'card', 'other'];
+
+// A payment made with several methods: body.payments = [{ method, amount }, ...].
+// Returns null when it is not a split. The same method listed twice is added together.
+function readPayments(body) {
+  if (body.payments == null || body.payments === '') return null;
+  if (!Array.isArray(body.payments)) throw httpError(400, 'The payment parts could not be read');
+  if (body.payments.length > 6) throw httpError(400, 'A payment can have at most 6 parts.');
+  const byMethod = new Map();
+  for (const part of body.payments) {
+    const method = part && part.method;
+    const amount = Math.round(Number(part && part.amount) * 100) / 100;
+    if (!PAY_METHODS.includes(method)) throw httpError(400, 'Choose how each part was paid: cash, transfer, card or other');
+    if (!Number.isFinite(amount) || amount <= 0) throw httpError(400, 'Each part of the payment must be more than 0');
+    byMethod.set(method, Math.round(((byMethod.get(method) || 0) + amount) * 100) / 100);
+  }
+  if (byMethod.size === 0) return null;
+  return Array.from(byMethod, ([method, amount]) => ({ method, amount }));
+}
+
 function readBody(req) {
   if (typeof req.body?.payload !== 'string') return req.body || {};
   try {
@@ -186,7 +206,15 @@ async function createSale(req, res, next) {
       return sendRecorded(req, res, already);
     }
 
-    const { customer: customerId, customerName, amountPaid, paymentMethod, date } = body;
+    const { customer: customerId, customerName, amountPaid, date } = body;
+    // one method, or several (cash + transfer ...). With several, the sale's method is 'split' and the parts are kept on its first line.
+    let splitParts = readPayments(body);
+    if (splitParts && splitParts.length === 1) {
+      body.paymentMethod = splitParts[0].method;
+      body.amountPaid = splitParts[0].amount;
+      splitParts = null;
+    }
+    const paymentMethod = splitParts ? 'split' : body.paymentMethod;
 
     // the store the stock comes out of: the one named in the sale (a sale recorded offline names it), else the one the person is working in
     shop = await resolveShop(req, body.shop, { strict: true });
@@ -211,6 +239,7 @@ async function createSale(req, res, next) {
     // It is one new item per swap, and `amountPaid` then means the cash the customer paid towards the top-up.
     const tradeIn = readTradeIn(body);
     if (tradeIn && rawItems.length !== 1) throw httpError(400, 'An item swap is for one new item. Record other items as a separate sale.');
+    if (tradeIn && splitParts) throw httpError(400, 'An item swap is paid with one method.');
 
     const lines = [];
     const seen = new Set();
@@ -241,8 +270,14 @@ async function createSale(req, res, next) {
       // the old item's value counts as paid; the customer pays the rest (the top-up) in cash, transfer or card
       swap = swapAmounts(grandTotal, tradeIn.value, amountPaid);
       paid = swap.paid;
+    } else if (splitParts) {
+      // paid with more than one method: what was paid is the parts added together
+      paid = Math.round(splitParts.reduce((sum, part) => sum + part.amount, 0) * 100) / 100;
+      if (paid > grandTotal + 0.005) throw httpError(400, 'The payment parts add up to more than the total of the sale.');
+      paid = Math.min(paid, grandTotal);
     } else {
-      paid = amountPaid == null || amountPaid === '' ? grandTotal : Number(amountPaid);
+      const given = body.amountPaid;
+      paid = given == null || given === '' ? grandTotal : Number(given);
       if (!Number.isFinite(paid) || paid < 0) throw httpError(400, 'amountPaid must be 0 or more');
       paid = Math.min(paid, grandTotal);
     }
@@ -337,6 +372,7 @@ async function createSale(req, res, next) {
         amountPaid: linePaid,
         paymentStatus: linePaid >= line.totalAmount ? 'paid' : linePaid > 0 ? 'partial' : 'credit',
         paymentMethod,
+        payments: index === 0 && splitParts ? splitParts : undefined,
         date: saleDate,
         // with several items, the delivery fee and the photos are kept on the first one
         deliveryPaidByUs: index === 0 ? delivery.deliveryPaidByUs : false,

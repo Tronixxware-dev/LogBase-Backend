@@ -27,6 +27,15 @@ const tradeInSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// One part of a payment made with more than one method (for example 50,000 cash and 120,000 transfer).
+const salePaymentSchema = new mongoose.Schema(
+  {
+    method: { type: String, enum: ['cash', 'transfer', 'card', 'other'], required: true },
+    amount: { type: Number, required: true, min: 0 },
+  },
+  { _id: false }
+);
+
 const saleSchema = new mongoose.Schema(
   {
     business: { type: mongoose.Schema.Types.ObjectId, ref: 'Business', required: true, index: true },
@@ -50,7 +59,9 @@ const saleSchema = new mongoose.Schema(
     totalAmount: { type: Number, required: true, min: 0 },
     amountPaid: { type: Number, required: true, default: 0 },
     paymentStatus: { type: String, enum: ['paid', 'partial', 'credit', 'returned'], default: 'paid' },
-    paymentMethod: { type: String, enum: ['cash', 'transfer', 'card', 'other'], default: 'cash' },
+    // 'split' = the customer paid with more than one method: the parts are in `payments` on the first line of the sale
+    paymentMethod: { type: String, enum: ['cash', 'transfer', 'card', 'other', 'split'], default: 'cash' },
+    payments: { type: [salePaymentSchema], default: undefined },
     // Returns. quantity + returnedQuantity is what was originally sold; totalAmount + returnedAmount what it was worth;
     // amountPaid + refundedAmount what the customer originally paid on the day.
     returnedQuantity: { type: Number, default: 0, min: 0 },
